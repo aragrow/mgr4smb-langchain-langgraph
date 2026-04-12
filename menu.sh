@@ -56,6 +56,23 @@ start_server() {
         return 0
     fi
 
+    # Clean stale PID file
+    if [[ -f "$PID_FILE" ]]; then
+        _warn "Removing stale PID file (process is not running)"
+        rm -f "$PID_FILE"
+    fi
+
+    # Check if port is already in use by another process
+    if command -v lsof >/dev/null 2>&1; then
+        local occupant
+        occupant=$(lsof -i ":$PORT" -sTCP:LISTEN -n -P 2>/dev/null | awk 'NR==2 {print $1" (PID "$2")"}')
+        if [[ -n "$occupant" ]]; then
+            _err "Port $PORT is already in use by: $occupant"
+            _err "Either stop that process or set MGR4SMB_PORT to a different port."
+            return 1
+        fi
+    fi
+
     mkdir -p logs
     _info "Starting uvicorn on ${HOST}:${PORT}…"
 
@@ -120,7 +137,49 @@ status_server() {
         _info "Health check: curl -sS http://localhost:${PORT}/health"
     else
         _warn "Server not running"
+        # If something else is occupying the port, report it
+        if command -v lsof >/dev/null 2>&1; then
+            local occupant
+            occupant=$(lsof -i ":$PORT" -sTCP:LISTEN -n -P 2>/dev/null | awk 'NR==2 {print $1" (PID "$2")"}')
+            if [[ -n "$occupant" ]]; then
+                _warn "Port $PORT is in use by another process: $occupant"
+            fi
+        fi
     fi
+}
+
+health_check() {
+    if ! command -v curl >/dev/null 2>&1; then
+        _err "curl not found — cannot run health check"
+        return 1
+    fi
+
+    local url="http://localhost:${PORT}/health"
+    _info "GET $url"
+
+    local body status
+    body=$(curl -sS -o /dev/stdout -w "\n__HTTP_STATUS__:%{http_code}" "$url" 2>&1) || {
+        _err "Could not reach $url (is the server running?)"
+        return 1
+    }
+
+    status="${body##*__HTTP_STATUS__:}"
+    body="${body%__HTTP_STATUS__:*}"
+
+    if command -v python3 >/dev/null 2>&1 && [[ -n "$body" ]]; then
+        # Pretty-print JSON if possible
+        pretty=$(printf '%s' "$body" | python3 -c \
+            "import json,sys; d=json.loads(sys.stdin.read()); print(json.dumps(d, indent=2))" \
+            2>/dev/null) && body="$pretty"
+    fi
+
+    printf '%s\n' "$body"
+
+    case "$status" in
+        200) _ok  "Health: OK (HTTP $status)" ;;
+        503) _warn "Health: DEGRADED (HTTP $status)" ;;
+          *) _err  "Health: UNEXPECTED (HTTP $status)" ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -309,11 +368,12 @@ show_menu() {
   2) Stop server
   3) Restart server
   4) Server status
-  5) Create new client + JWT
-  6) List clients
-  7) Reissue JWT for existing client
-  8) Revoke client (disable)
-  9) Exit
+  5) Health check (GET /health)
+  6) Create new client + JWT
+  7) List clients
+  8) Reissue JWT for existing client
+  9) Revoke client (disable)
+ 10) Exit
 ═══════════════════════════════════════
 EOF
 }
@@ -327,11 +387,12 @@ main() {
             2) stop_server ;;
             3) restart_server ;;
             4) status_server ;;
-            5) create_client ;;
-            6) list_clients ;;
-            7) reissue_client ;;
-            8) revoke_client ;;
-            9) _info "Bye."; exit 0 ;;
+            5) health_check ;;
+            6) create_client ;;
+            7) list_clients ;;
+            8) reissue_client ;;
+            9) revoke_client ;;
+            10) _info "Bye."; exit 0 ;;
             *) _warn "Invalid choice: $choice" ;;
         esac
     done
