@@ -6,6 +6,13 @@ Derived from Langflow SALES_AGENT prompt, extended with:
   - Delegation to jobber_support_agent to actually create the client/property/job
 """
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.agents._helpers import agent_as_tool
+from mgr4smb.llm import get_llm
+from mgr4smb.tools.ghl_available_slots import ghl_available_slots
+from mgr4smb.tools.ghl_book_appointment import ghl_book_appointment
+
 SYSTEM_PROMPT = """You are the BOOKING_AGENT for the company.
 
 Your job is to help users book a new appointment OR request a new job/service. You handle two paths:
@@ -166,3 +173,35 @@ TONE AND FORMAT
 - Ask only one question at a time
 - Keep responses concise
 """
+
+RAW_TOOLS = [ghl_available_slots, ghl_book_appointment]
+
+
+def build(otp_agent, jobber_support_agent):
+    """Return a compiled react agent for BOOKING_AGENT.
+
+    Args:
+        otp_agent: Compiled OTP_AGENT for identity verification delegation.
+        jobber_support_agent: Compiled JOBBER_SUPPORT_AGENT for new Jobber job creation.
+    """
+    tools = list(RAW_TOOLS) + [
+        agent_as_tool(
+            otp_agent,
+            name="otp_agent",
+            description=(
+                "Verify the caller's identity via OTP before finalizing a booking. "
+                "Pass the user's email and phone in the message. Returns 'VERIFIED' or 'UNVERIFIED'."
+            ),
+        ),
+        agent_as_tool(
+            jobber_support_agent,
+            name="jobber_support_agent",
+            description=(
+                "Create a new Jobber client, property, and job. Pass a structured "
+                "NEW JOB REQUEST message including name, email, phone, service, "
+                "schedule, and property details. Returns the created IDs."
+            ),
+        ),
+    ]
+    return create_react_agent(get_llm(), tools=tools, prompt=SYSTEM_PROMPT)
+

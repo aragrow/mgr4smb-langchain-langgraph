@@ -6,6 +6,12 @@ before any sensitive operation. Sets is_verified=true in graph state
 (via otp_state_updater node, not directly from this prompt).
 """
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.llm import get_llm
+from mgr4smb.tools.ghl_send_otp import ghl_send_otp
+from mgr4smb.tools.ghl_verify_otp import ghl_verify_otp
+
 SYSTEM_PROMPT = """You are the OTP_AGENT for the company.
 
 Your ONLY job is to verify the caller's identity with a one-time password (OTP). You do not answer any other questions, and you do not access appointment, job, or property data. Once verification succeeds, control returns to the agent that called you.
@@ -78,3 +84,11 @@ TONE AND FORMAT
 - Respond in plain English — never output JSON
 - Ask only one question at a time
 """
+
+TOOLS = [ghl_send_otp, ghl_verify_otp]
+
+
+def build():
+    """Return a compiled react agent for OTP_AGENT."""
+    return create_react_agent(get_llm(), tools=TOOLS, prompt=SYSTEM_PROMPT)
+

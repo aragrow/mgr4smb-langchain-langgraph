@@ -5,6 +5,18 @@ Extended from the Langflow JOBBER_SUPPORT_AGENT (read-only) to also handle:
   - OTP delegation before any access or modification
 """
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.agents._helpers import agent_as_tool
+from mgr4smb.llm import get_llm
+from mgr4smb.tools.jobber_create_client import jobber_create_client
+from mgr4smb.tools.jobber_create_job import jobber_create_job
+from mgr4smb.tools.jobber_create_property import jobber_create_property
+from mgr4smb.tools.jobber_get_clients import jobber_get_clients
+from mgr4smb.tools.jobber_get_jobs import jobber_get_jobs
+from mgr4smb.tools.jobber_get_properties import jobber_get_properties
+from mgr4smb.tools.jobber_get_visits import jobber_get_visits
+
 SYSTEM_PROMPT = """You are the JOBBER_SUPPORT_AGENT for the company.
 
 Your job is TWOFOLD:
@@ -175,3 +187,38 @@ TONE AND FORMAT
 - Use bullet lists for multiple items
 - Ask only one clarifying question at a time
 """
+
+# Raw Jobber tools (same list for both read and create modes)
+RAW_TOOLS = [
+    jobber_get_clients,
+    jobber_get_properties,
+    jobber_get_jobs,
+    jobber_get_visits,
+    jobber_create_client,
+    jobber_create_property,
+    jobber_create_job,
+    # jobber_send_message intentionally excluded — [future] placeholder
+]
+
+
+def build(otp_agent):
+    """Return a compiled react agent for JOBBER_SUPPORT_AGENT.
+
+    Args:
+        otp_agent: A compiled OTP_AGENT (from mgr4smb.agents.otp.build()) that
+                    this agent will delegate identity verification to when the
+                    caller hasn't already been verified.
+    """
+    tools = list(RAW_TOOLS) + [
+        agent_as_tool(
+            otp_agent,
+            name="otp_agent",
+            description=(
+                "Verify the caller's identity via OTP. Pass the user's email "
+                "and phone in the message. Returns a response starting with "
+                "'VERIFIED' on success or 'UNVERIFIED' on failure."
+            ),
+        ),
+    ]
+    return create_react_agent(get_llm(), tools=tools, prompt=SYSTEM_PROMPT)
+

@@ -6,6 +6,13 @@ Derived from Langflow CUSTOMER_SUPPORT_AGENT prompt, with:
   - Rebook during reschedule = cancel old → delegate to booking_agent
 """
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.agents._helpers import agent_as_tool
+from mgr4smb.llm import get_llm
+from mgr4smb.tools.ghl_cancel_appointment import ghl_cancel_appointment
+from mgr4smb.tools.ghl_get_appointments import ghl_get_appointments
+
 SYSTEM_PROMPT = """You are the GHL_SUPPORT_AGENT for the company.
 
 Your job is to help existing customers with their GHL appointments — viewing, rescheduling, and cancelling. You MUST verify the caller's identity (via otp_agent) before accessing or modifying any appointment data.
@@ -131,3 +138,35 @@ TONE AND FORMAT
 - Ask only one question at a time
 - Keep responses concise
 """
+
+RAW_TOOLS = [ghl_get_appointments, ghl_cancel_appointment]
+
+
+def build(otp_agent, booking_agent):
+    """Return a compiled react agent for GHL_SUPPORT_AGENT.
+
+    Args:
+        otp_agent: Compiled OTP_AGENT for identity verification delegation.
+        booking_agent: Compiled BOOKING_AGENT for the rebook step of reschedule.
+    """
+    tools = list(RAW_TOOLS) + [
+        agent_as_tool(
+            otp_agent,
+            name="otp_agent",
+            description=(
+                "Verify the caller's identity via OTP before accessing appointments. "
+                "Pass the user's email and phone in the message. Returns 'VERIFIED' or 'UNVERIFIED'."
+            ),
+        ),
+        agent_as_tool(
+            booking_agent,
+            name="booking_agent",
+            description=(
+                "Book a NEW appointment (used during the rebook step of a reschedule flow). "
+                "Pass the service name, user's email, phone, timezone, and a note that "
+                "identity was already verified. Returns the new booking confirmation."
+            ),
+        ),
+    ]
+    return create_react_agent(get_llm(), tools=tools, prompt=SYSTEM_PROMPT)
+

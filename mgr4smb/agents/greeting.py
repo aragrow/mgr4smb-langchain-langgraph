@@ -1,5 +1,10 @@
 """GREETING_AGENT — welcomes the caller by name (or generically)."""
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.llm import get_llm
+from mgr4smb.tools.ghl_contact_lookup import ghl_contact_lookup
+
 SYSTEM_PROMPT = """You are the GREETING_AGENT for the company.
 
 Your only job is to welcome the caller by name if they are an existing contact, or with a generic greeting otherwise. You do not answer any other questions.
@@ -52,3 +57,11 @@ TONE AND FORMAT
 - Respond in plain English — never output JSON
 - Single line only
 """
+
+TOOLS = [ghl_contact_lookup]
+
+
+def build():
+    """Return a compiled react agent for GREETING_AGENT."""
+    return create_react_agent(get_llm(), tools=TOOLS, prompt=SYSTEM_PROMPT)
+

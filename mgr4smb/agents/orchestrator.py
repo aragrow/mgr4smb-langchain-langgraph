@@ -7,6 +7,11 @@ System prompt ported from Langflow Prompt Template-jg9sv and adapted:
     to it internally when they need identity verification.
 """
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.agents._helpers import agent_as_tool
+from mgr4smb.llm import get_llm
+
 SYSTEM_PROMPT = """You are the ORCHESTRATOR AGENT for the company assistant.
 
 Your ONLY job is to identify the user, collect required contact information, greet them via the greeting_agent, and route to the correct specialized tool. You do not answer specialist questions yourself.
@@ -111,3 +116,62 @@ TONE AND FORMAT
 - Respond in plain English — never output JSON
 - Ask only one question at a time
 """
+
+
+def build(
+    greeting_agent,
+    general_info_agent,
+    booking_agent,
+    ghl_support_agent,
+    jobber_support_agent,
+):
+    """Return a compiled react agent for ORCHESTRATOR.
+
+    All 5 specialists are passed in pre-built (avoids circular imports and
+    makes the wiring explicit in the graph assembly module).
+    """
+    tools = [
+        agent_as_tool(
+            greeting_agent,
+            name="greeting_agent",
+            description=(
+                "Greet the caller by name (or generically if new). Pass the user's "
+                "email and phone. Returns a single-line greeting."
+            ),
+        ),
+        agent_as_tool(
+            general_info_agent,
+            name="general_info_agent",
+            description=(
+                "Answer general questions about the company (services, pricing, "
+                "hours, location, policies, FAQs) using the knowledge base."
+            ),
+        ),
+        agent_as_tool(
+            booking_agent,
+            name="booking_agent",
+            description=(
+                "Handle NEW bookings — either a GHL calendar appointment or a new "
+                "Jobber service job at a property. Pass the user's email, phone, "
+                "timezone, and request details."
+            ),
+        ),
+        agent_as_tool(
+            ghl_support_agent,
+            name="ghl_support_agent",
+            description=(
+                "Handle EXISTING GHL appointments (view, reschedule, cancel). "
+                "Pass the user's email, phone, timezone, and request."
+            ),
+        ),
+        agent_as_tool(
+            jobber_support_agent,
+            name="jobber_support_agent",
+            description=(
+                "Look up EXISTING Jobber data (clients, properties, jobs, visits). "
+                "Pass the user's question and any client identifier."
+            ),
+        ),
+    ]
+    return create_react_agent(get_llm(), tools=tools, prompt=SYSTEM_PROMPT)
+

@@ -1,5 +1,10 @@
 """GENERAL_INFO_AGENT — answers general company questions via the knowledge base."""
 
+from langgraph.prebuilt import create_react_agent
+
+from mgr4smb.llm import get_llm
+from mgr4smb.tools.mongodb_knowledge_base import mongodb_knowledge_base
+
 SYSTEM_PROMPT = """You are the GENERAL_INFO_AGENT for the company.
 
 Your job is to answer general questions about the company using the knowledge base tool available to you.
@@ -63,3 +68,11 @@ TONE AND FORMAT
 - Respond in plain English — never output JSON
 - Keep responses concise
 """
+
+TOOLS = [mongodb_knowledge_base]
+
+
+def build():
+    """Return a compiled react agent for GENERAL_INFO_AGENT."""
+    return create_react_agent(get_llm(), tools=TOOLS, prompt=SYSTEM_PROMPT)
+
