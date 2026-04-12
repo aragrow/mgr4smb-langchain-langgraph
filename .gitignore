@@ -144,6 +144,12 @@ ENV/
 env.bak/
 venv.bak/
 
+# mgr4smb project secrets and runtime files
+clients.json
+.tokens.json
+.mgr4smb.pid
+logs/
+
 # Spyder project settings
 .spyderproject
 .spyproject

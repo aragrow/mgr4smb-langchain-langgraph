@@ -1,0 +1,23 @@
+[project]
+name = "mgr4smb"
+version = "0.1.0"
+description = "Multi-agent customer assistant — LangChain + LangGraph"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain>=1.2.0",
+    "langchain-core>=1.2.22",
+    "langchain-google-genai>=4.0.0",
+    "langgraph>=1.1.0",
+    "langchain-mongodb>=0.10.0",
+    "langgraph-checkpoint-mongodb>=0.3.0",
+    "pymongo>=4.12.0",
+    "httpx>=0.28.0,<1.0",
+    "python-dotenv>=1.2.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pyjwt>=2.10.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
