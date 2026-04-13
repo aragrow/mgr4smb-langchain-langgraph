@@ -1,15 +1,16 @@
-"""Retrieve Jobber service properties for a client, identified by email.
+"""Retrieve Jobber visits for a client, identified by email.
 
 Flow:
     1. Prompt for (or --email) the client's email.
     2. jobber_get_clients → captures the Jobber client ID.
-    3. jobber_get_properties → prints each property address and ID.
+    3. jobber_get_visits → prints visits grouped by job, with status,
+       schedule, and property.
 
 Read-only.
 
 Usage:
-    python scripts/jobber_properties_by_email.py
-    python scripts/jobber_properties_by_email.py --email jane@example.com
+    python scripts/jobber_visits_by_email.py
+    python scripts/jobber_visits_by_email.py --email jane@example.com
 """
 
 import sys
@@ -34,9 +35,9 @@ from _jobber_by_email import (  # noqa: E402
 
 def main() -> int:
     args = build_arg_parser(
-        "Fetch Jobber service properties (addresses) for a client by email."
+        "Fetch Jobber visits (grouped by job) for a client by email."
     ).parse_args()
-    banner("Jobber — properties by email")
+    banner("Jobber — visits by email")
 
     email = read_email(args)
     if email is None:
@@ -58,25 +59,23 @@ def main() -> int:
 
     print()
     print(line("─"))
-    print(f"  Fetching properties for Jobber client ID: {client_id}")
+    print(f"  Fetching visits for Jobber client ID: {client_id}")
     print(line("─"))
 
     try:
-        from mgr4smb.tools.jobber_get_properties import jobber_get_properties
+        from mgr4smb.tools.jobber_get_visits import jobber_get_visits
     except Exception as e:
-        err(f"Could not import jobber_get_properties: {e}")
+        err(f"Could not import jobber_get_visits: {e}")
         return 1
 
     try:
-        properties_result = jobber_get_properties.invoke(
-            {"client_id_jobber": client_id}
-        )
+        visits_result = jobber_get_visits.invoke({"client_id_jobber": client_id})
     except Exception as e:
-        err(f"jobber_get_properties raised: {type(e).__name__}: {e}")
+        err(f"jobber_get_visits raised: {type(e).__name__}: {e}")
         return 1
 
     print()
-    print(indent(properties_result))
+    print(indent(visits_result))
     print()
     ok("Done.")
     return 0

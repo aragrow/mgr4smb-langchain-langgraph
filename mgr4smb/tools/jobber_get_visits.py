@@ -10,14 +10,21 @@ from mgr4smb.tools import jobber_client
 logger = logging.getLogger(__name__)
 
 
+# Jobber enforces a per-query complexity cost on top of per-minute/hour
+# rate limits. Nested jobs × visits at 50×50 (= up to 2500 nodes) reliably
+# triggers THROTTLED responses even on an idle account, because the cost
+# is estimated from `first:` BEFORE execution — actual size doesn't matter.
+# 15 × 25 = up to 375 nodes keeps us comfortably under the threshold for
+# a single client while still covering realistic caseloads (a client with
+# 15+ jobs, each with 25+ visits, is already an outlier).
 _QUERY_VISITS = """
 query GetVisits($clientId: EncodedId!) {
   client(id: $clientId) {
-    jobs(first: 50) {
+    jobs(first: 15) {
       nodes {
         id
         title
-        visits(first: 50) {
+        visits(first: 25) {
           nodes {
             id
             title
