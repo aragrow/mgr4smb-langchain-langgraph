@@ -10,15 +10,11 @@ from datetime import datetime, timedelta, timezone
 
 from langchain_core.tools import tool
 
+from mgr4smb.config import settings
 from mgr4smb.exceptions import GHLAPIError
 from mgr4smb.tools import ghl_client
 
 logger = logging.getLogger(__name__)
-
-# GHL custom field keys for OTP storage
-OTP_CODE_FIELD_KEY = "contact.otp_code"
-OTP_EXPIRY_FIELD_KEY = "contact.otp_expires_at"
-OTP_LIFETIME_MINUTES = 15
 
 
 def _normalize_phone(phone: str) -> str:
@@ -74,13 +70,16 @@ def ghl_send_otp(contact_email: str, contact_phone: str) -> str:
 
         # Generate OTP
         otp_code = f"{secrets.randbelow(900000) + 100000}"
-        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=OTP_LIFETIME_MINUTES)).isoformat()
+        expires_at = (
+            datetime.now(timezone.utc)
+            + timedelta(minutes=settings.ghl_otp_lifetime_minutes)
+        ).isoformat()
 
         # Resolve the human-readable field keys → real GHL field ids.
         # GHL silently ignores PUTs that use the key form, leaving the
         # fields blank (which leaves the workflow email blank too).
-        code_field_id = ghl_client.resolve_custom_field_id(OTP_CODE_FIELD_KEY)
-        expiry_field_id = ghl_client.resolve_custom_field_id(OTP_EXPIRY_FIELD_KEY)
+        code_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_code_field_key)
+        expiry_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_expiry_field_key)
 
         # Store OTP on the contact (triggers GHL workflow to email the code)
         client = ghl_client.get_client()

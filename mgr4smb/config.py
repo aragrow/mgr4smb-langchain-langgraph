@@ -81,6 +81,19 @@ class _Settings:
     def ghl_slot_duration_minutes(self) -> int:
         return int(_optional("GHL_SLOT_DURATION_MINUTES", "30"))
 
+    # --- GHL OTP custom-field keys (overridable per client) ---
+    @property
+    def ghl_otp_code_field_key(self) -> str:
+        return _optional("GHL_OTP_CODE_FIELD_KEY", "contact.otp_code")
+
+    @property
+    def ghl_otp_expiry_field_key(self) -> str:
+        return _optional("GHL_OTP_EXPIRY_FIELD_KEY", "contact.otp_expires_at")
+
+    @property
+    def ghl_otp_lifetime_minutes(self) -> int:
+        return int(_optional("GHL_OTP_LIFETIME_MINUTES", "15"))
+
     # --- MongoDB (knowledge base) ---
     @property
     def mongodb_atlas_uri(self) -> str:

@@ -8,13 +8,11 @@ from datetime import datetime, timezone
 
 from langchain_core.tools import tool
 
+from mgr4smb.config import settings
 from mgr4smb.exceptions import GHLAPIError
 from mgr4smb.tools import ghl_client
 
 logger = logging.getLogger(__name__)
-
-OTP_CODE_FIELD_KEY = "contact.otp_code"
-OTP_EXPIRY_FIELD_KEY = "contact.otp_expires_at"
 
 
 def _clear_otp(client, contact_id: str) -> None:
@@ -24,8 +22,8 @@ def _clear_otp(client, contact_id: str) -> None:
     the key form and leaves fields untouched.
     """
     try:
-        code_field_id = ghl_client.resolve_custom_field_id(OTP_CODE_FIELD_KEY)
-        expiry_field_id = ghl_client.resolve_custom_field_id(OTP_EXPIRY_FIELD_KEY)
+        code_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_code_field_key)
+        expiry_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_expiry_field_key)
         client.put(
             f"/contacts/{contact_id}",
             json={
@@ -76,8 +74,8 @@ def ghl_verify_otp(contact_identifier: str, otp_code: str) -> str:
         # Read stored OTP from custom fields. GHL returns customFields with
         # `id` populated and `key=None`, so we must match on field id.
         # Resolve our human-readable keys to ids first, then look them up.
-        code_field_id = ghl_client.resolve_custom_field_id(OTP_CODE_FIELD_KEY)
-        expiry_field_id = ghl_client.resolve_custom_field_id(OTP_EXPIRY_FIELD_KEY)
+        code_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_code_field_key)
+        expiry_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_expiry_field_key)
 
         stored_code = ""
         stored_expiry = ""
