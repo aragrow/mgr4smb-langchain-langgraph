@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mgr4smb — Chat</title>
+  <link rel="stylesheet" href="chat.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="health-dot" title="Server health"></span>
+      <strong>mgr4smb</strong>
+      <span class="muted" id="health-text">checking…</span>
+    </div>
+    <button class="btn-link" id="settings-toggle">Settings</button>
+  </header>
+
+  <section class="settings" id="settings" hidden>
+    <div class="field">
+      <label for="api-base">API base URL</label>
+      <input id="api-base" type="text" placeholder="http://localhost:8000" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="jwt-token">JWT token</label>
+      <input id="jwt-token" type="password" placeholder="eyJhbGciOi..." autocomplete="off" spellcheck="false" />
+      <small class="muted">Issue one with <code>./menu.sh</code> → option 6 (Create new client + JWT).</small>
+    </div>
+    <div class="field inline">
+      <label for="remember-token">
+        <input id="remember-token" type="checkbox" checked />
+        Remember in this browser (localStorage)
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn-primary" id="save-settings">Save</button>
+      <button class="btn-secondary" id="clear-settings">Clear token</button>
+    </div>
+  </section>
+
+  <section class="session-bar">
+    <span class="muted">Session:</span>
+    <code id="session-id">none</code>
+    <button class="btn-link" id="new-session">New session</button>
+  </section>
+
+  <main class="chat" id="chat" aria-live="polite">
+    <div class="msg msg-system">
+      Welcome. Configure your API URL and JWT in <strong>Settings</strong>, then say hello below.
+    </div>
+  </main>
+
+  <div class="banner banner-error" id="error-banner" hidden></div>
+
+  <form class="composer" id="composer" autocomplete="off">
+    <textarea
+      id="input"
+      placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+      rows="2"
+      required
+      maxlength="4000"
+    ></textarea>
+    <button type="submit" class="btn-primary" id="send-btn">Send</button>
+  </form>
+
+  <script src="chat.js"></script>
+</body>
+</html>

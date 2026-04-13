@@ -11,9 +11,11 @@ process, created on startup and disposed on shutdown.
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from mgr4smb.auth import verify_token
@@ -79,6 +81,20 @@ app = FastAPI(
     redoc_url=None,  # Disable ReDoc
     openapi_url=None,
 )
+
+# Mount the self-contained chat UI (chat-ui/ at the project root) at /chat-ui/.
+# Served same-origin so no CORS is needed; the HTML talks to /chat and /health
+# via window.location.origin by default.
+_chat_ui_dir = Path(__file__).resolve().parent.parent / "chat-ui"
+if _chat_ui_dir.is_dir():
+    app.mount(
+        "/chat-ui",
+        StaticFiles(directory=str(_chat_ui_dir), html=True),
+        name="chat-ui",
+    )
+    logger.info("Chat UI mounted at /chat-ui/ from %s", _chat_ui_dir)
+else:
+    logger.warning("Chat UI directory not found at %s — skipping mount", _chat_ui_dir)
 
 
 # --------------------------------------------------------------------------
