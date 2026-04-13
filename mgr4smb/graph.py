@@ -138,7 +138,21 @@ def run_turn(
     Returns:
         The final AI message text content for this turn.
     """
-    config = {"configurable": {"thread_id": session_id}}
+    # Tag the run for LangSmith so traces can be filtered by session_id/client_id
+    # and grouped under a named "Turn" run instead of bare LLM calls.
+    config = {
+        "configurable": {"thread_id": session_id},
+        "run_name": f"Turn — {session_id[:8]}",
+        "tags": [
+            f"session:{session_id}",
+            f"client:{client_id[:8]}" if client_id else "client:anon",
+            "mgr4smb",
+        ],
+        "metadata": {
+            "session_id": session_id,
+            "client_id": client_id,
+        },
+    }
     logger.info(
         "Turn started",
         extra={"session_id": session_id, "client_id": client_id},
