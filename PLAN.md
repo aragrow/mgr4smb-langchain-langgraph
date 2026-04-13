@@ -22,25 +22,34 @@ The goal is to reimplement this entire system as a pure Python project using **L
 │                                                                     │
 │  ORCHESTRATOR AGENT                                                 │
 │       ├── GREETING_AGENT        (tool: GHL Contact Lookup)          │
+│       ├── CASE_AGENT            (tools: case_find, case_create,     │
+│       │                          case_get, case_add_task,           │
+│       │                          case_complete_task,                │
+│       │                          case_log_entry, case_update_status)│
+│       │      ↑ called after greeting to establish case context;     │
+│       │        also called by specialist agents to log tasks        │
 │       ├── GENERAL_INFO_AGENT    (tool: MongoDB Atlas Vector Search) │
 │       ├── BOOKING_AGENT         (tools: GHL Available Slots,        │
 │       │                          GHL Book Appointment;              │
 │       │                          + delegates to JOBBER_SUPPORT_AGENT│
-│       │                            for job creation)                │
+│       │                            for job creation; logs tasks to  │
+│       │                            the case)                        │
 │       ├── OTP_AGENT             (tools: GHL Send OTP, GHL Verify    │
 │       │      ↑ called by BOOKING, GHL_SUPPORT, and JOBBER_SUPPORT   │
 │       │        before any sensitive operation                       │
 │       ├── GHL_SUPPORT_AGENT     (tools: GHL Get Appointments,       │
 │       │                          GHL Cancel Appointment;            │
 │       │                          delegates to BOOKING_AGENT         │
-│       │                            for rebook step of reschedule)   │
+│       │                            for rebook step of reschedule;   │
+│       │                            logs tasks to the case)          │
 │       └── JOBBER_SUPPORT_AGENT  (tools: Jobber Get Clients,         │
 │                                  Jobber Get Properties,             │
 │                                  Jobber Get Jobs, Jobber Get Visits, │
 │                                  Jobber Create Client,              │
 │                                  Jobber Create Property,            │
 │                                  Jobber Create Job,                 │
-│                                  Jobber Send Message [future])      │
+│                                  Jobber Send Message [future];      │
+│                                  logs tasks to the case)            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -290,7 +299,7 @@ JOBBER_TOKENS_FILE=.tokens.json  # Path to Jobber OAuth tokens file
   class AgentState(TypedDict):
       messages: Annotated[list, add_messages]  # SHARED — all agents read/write
       client_id: str              # Authenticated client (from JWT)
-      session_id: str             # Conversation session ID
+      session_id: str             # Conversation session ID (== LangGraph thread_id)
       contact_id: str             # GHL contact ID (cached after first lookup — avoids redundant searches)
       user_email: str
       user_phone: str
@@ -298,6 +307,9 @@ JOBBER_TOKENS_FILE=.tokens.json  # Path to Jobber OAuth tokens file
       user_name: str
       is_existing_contact: bool
       is_verified: bool           # OTP verified — persists for session
+      case_id: str                # Durable business case id (populated by CASE_AGENT — see Phase 11)
+      caller_type: str            # 'client' | 'vendor' | 'lead' — populated by CASE_AGENT
+      job_type: str               # 'VRio' | 'VRo' | 'OC' | 'R' | ... — populated by CASE_AGENT
   ```
 - `mgr4smb/logging_config.py` — structured logging setup
 - `mgr4smb/exceptions.py` — custom exception hierarchy
@@ -1106,6 +1118,251 @@ python -m mgr4smb.checks.run_all --up-to 5
 Phases 3, 4, 5, and 6 can be done **in parallel** since they are independent.
 
 **After each phase:** run `python -m mgr4smb.checks.run_all --up-to N` to verify the current phase AND all previous phases still pass.
+
+---
+
+### Phase 11: Case Management (planned — not yet implemented)
+
+**Goal:** Introduce a durable, backend-owned "case" record that represents a single customer matter (e.g. a reschedule, a new-job request, a problem report). The CASE_AGENT maintains the record across one or many chat sessions, and specialist agents log their actions as tasks on the case.
+
+**Why a separate record, not just the LangGraph thread?**
+- `thread_id` = one LangGraph conversation; ephemeral from the business POV; bound to the orchestration framework.
+- `case_id` = the durable business object. It may aggregate **multiple** LangGraph threads (the user called back three days later on a different session) and survives framework changes.
+- Keeping them separate means we can one day swap LangGraph or LangSmith without touching the case schema.
+
+#### 11.1 Case data model
+
+Stored in a new MongoDB collection `mgr4smb-cases.cases`. Schema:
+
+```python
+{
+  # --- identity ---
+  "case_id":              str,    # e.g. "CASE-2026-0413-A1B2" or UUID
+  "thread_ids":           list[str],  # every LangGraph thread attached to this case
+  "location_id":          str,    # GHL sub-account
+  "customer_contact_id":  str,    # GHL contact UUID (the client)
+  "provider_contact_id":  str | None,   # GHL contact UUID (the assigned vendor)
+
+  # --- classification (populated from intake questions) ---
+  "property": {
+    "code": str,                  # e.g. "12345main" or "5678humbold"
+    "city": str,
+  },
+  "job_type":   str,              # 'VRio' | 'VRo' | 'OC' | 'R' | ...  (enum below)
+  "caller_type": str,             # 'client' | 'vendor' | 'lead'
+  "intent":      str,             # 'quote' | 'schedule' | 'problem' | 'reschedule' | ...
+
+  # --- channel + change request ---
+  "channel_context": {
+    "channel":       str,         # 'phone' | 'sms' | 'chat' | 'email'
+    "phone_number":  str | None,
+    # additional phone/SMS provider metadata as needed
+  },
+  "requested_change": {           # populated for reschedule/modify intents
+    "original_slot":  str | None, # ISO 8601
+    "new_slot":       str | None,
+  },
+
+  # --- state ---
+  "status":         str,          # see state machine below
+  "last_event_id":  str | None,   # last processed webhook/channel event — for idempotency
+
+  # --- conversation + work ---
+  "conversation_log": [           # one entry per meaningful turn (not every raw message)
+    {
+      "ts":        str,           # ISO 8601
+      "thread_id": str,           # which LangGraph thread produced this entry
+      "role":      str,           # 'user' | 'agent'
+      "summary":   str,           # short, human-readable
+    },
+  ],
+  "tasks": [                       # backlog of concrete actions for this case
+    {
+      "task_id":      str,
+      "type":         str,        # see task types below
+      "description":  str,
+      "status":       str,        # 'pending' | 'in_progress' | 'completed' | 'cancelled'
+      "assigned_to":  str,        # 'ghl_automation' | 'human:<name>' | 'vendor:<id>'
+      "payload":      dict,       # type-specific (phone numbers, event ids, etc)
+      "created_at":   str,
+      "completed_at": str | None,
+    },
+  ],
+
+  # --- audit ---
+  "created_at": str,
+  "updated_at": str,
+}
+```
+
+**Job type enum (`job_type`):** `VRio`, `VRo`, `OC`, `R`, plus future codes. Kept as free-text for forward compatibility; the CASE_AGENT prompt lists the accepted values.
+
+**Caller type enum (`caller_type`):** `client`, `vendor`, `lead`.
+
+**Intent enum (`intent`):** `quote`, `schedule`, `reschedule`, `cancel`, `problem`, `status_check`, `information`, `other`.
+
+**Status state machine:**
+```
+open → pending_client → pending_provider → approved → in_progress → resolved
+                                              ↓
+                                          cancelled
+```
+
+**Task type enum (`tasks[].type`):**
+- `call_vendor`        — "Have GHL call the Vendor"
+- `call_client`        — "Have GHL call the Client"
+- `email_vendor`       — "Send email to Vendor"
+- `email_client`       — "Send email to Client"
+- `cancel_visit`       — "Cancel visit ABC" (payload includes Jobber visit id OR GHL event id)
+- `book_appointment`   — payload includes calendar id, slot, service
+- `book_jobber_job`    — payload includes client/property/service
+- `update_contact`     — payload includes fields + values
+- `other`              — description carries the full intent
+
+#### 11.2 MongoDB setup
+
+- Database: `mgr4smb-cases` (separate from the knowledge-base DB and the memory/checkpoint DB).
+- Collection: `cases`.
+- Indexes to create on first connect:
+    * `case_id` (unique)
+    * compound `(location_id, customer_contact_id, property.code, property.city)` — the lookup key used by `case_find`
+    * `status` (for future ops queries)
+    * `updated_at` (sorting recent cases)
+
+New `.env` keys:
+```
+MONGODB_CASES_DB=mgr4smb-cases
+MONGODB_CASES_COLLECTION=cases
+```
+
+#### 11.3 Case tools (`mgr4smb/tools/case_*.py`)
+
+All tools are regular `@tool`-decorated functions. They reuse the MongoDB client already built for memory/knowledge-base.
+
+| Tool | Signature | Purpose |
+|------|-----------|---------|
+| `case_find` | `(email, phone, property_code, city, location_id=None) -> str` | Look up an existing case by (email OR phone) + property + city. Returns the case_id + summary or "NO_MATCH". |
+| `case_create` | `(caller_type, intent, property_code, city, customer_contact_id, location_id, channel_context, job_type="", requested_change=None) -> str` | Create a new case, returns the new case_id. |
+| `case_get` | `(case_id) -> str` | Fetch the full case as a summarized string. |
+| `case_add_task` | `(case_id, task_type, description, assigned_to="ghl_automation", payload=None) -> str` | Append a task. Returns the new task_id. |
+| `case_complete_task` | `(case_id, task_id, result_summary="") -> str` | Mark a task `completed`. |
+| `case_update_status` | `(case_id, new_status) -> str` | Advance the status field (validates against the state machine). |
+| `case_log_entry` | `(case_id, thread_id, role, summary) -> str` | Append a conversation log entry. |
+| `case_list_tasks` | `(case_id, status=None) -> str` | Return the task list (optionally filtered by status). |
+
+Tools raise `MongoDBError` on connectivity/query failure and return user-readable strings for business-level outcomes.
+
+#### 11.4 CASE_AGENT prompt (`mgr4smb/agents/case.py`)
+
+Responsibilities:
+1. Given email/phone from the orchestrator, ask the user for **property code** and **city** (if not already in history).
+2. Call `case_find` with those four values. If a match is found:
+   - Summarize the existing case to the user ("I see you have an open case about rescheduling a VRio job at 12345main in Austin — we're waiting on the vendor to confirm.").
+   - Ask whether this call is about that case or a new matter.
+3. If no match (or the user confirms "new matter"):
+   - Ask `caller_type` (client/vendor/lead) if ambiguous.
+   - Ask `intent` (schedule/reschedule/quote/problem/...).
+   - Ask `job_type` if relevant.
+   - Call `case_create` with the collected fields.
+4. Reply with a short line starting with `CASE_READY <case_id> — <one-line summary>` so the state updater can extract the case_id into graph state.
+
+Escalation rules (mirroring the OTP agent's pattern):
+- If the user can't produce the property code + city, the agent still creates a case but flags it as `status: open` and `intent: information` so a human can triage later.
+- Never modify GHL or Jobber data directly — that's the specialist agents' job. The CASE_AGENT only records.
+
+#### 11.5 Orchestrator integration
+
+Updated flow (ordering of Step 2 ↔ Step 3 changes):
+
+```
+1. Identify (email + phone)                                  [unchanged]
+2. Greet via GREETING_AGENT                                  [unchanged]
+3. Establish case context via CASE_AGENT  ← NEW STEP
+4. Route to specialist (BOOKING, GHL_SUPPORT, JOBBER_SUPPORT,
+   or GENERAL_INFO), passing case_id in the delegation
+   message so the specialist can log tasks.
+```
+
+Delegation message format for specialists gets a new header line:
+```
+CASE: <case_id>  property: 12345main/Austin  caller: client  intent: reschedule
+```
+
+A new lightweight state updater node runs after CASE_AGENT:
+```python
+def case_state_updater(state: AgentState) -> dict:
+    last_msg = _last_ai_text(state["messages"])
+    if last_msg.startswith("CASE_READY"):
+        # "CASE_READY <case_id> — <summary>"
+        parts = last_msg.split(maxsplit=2)
+        if len(parts) >= 2:
+            return {"case_id": parts[1]}
+    return {}
+```
+
+Mirrors `otp_state_updater` in Phase 8.
+
+#### 11.6 Task logging from specialist agents
+
+Specialists (`booking`, `ghl_support`, `jobber_support`) get **two** of the case tools added to their tool lists — enough to record work, not enough to mutate the case record broadly:
+
+- `case_add_task`     — record an intended/completed action
+- `case_log_entry`    — record a meaningful conversation turn
+
+The CASE_AGENT owns everything else (`case_create`, `case_update_status`, `case_complete_task`, `case_find`, `case_get`). Separation keeps the case record canonical — specialists can only append, not restructure.
+
+Examples:
+- BOOKING_AGENT after booking a new GHL appointment:
+  `case_add_task(case_id, "book_appointment", "Booked consultation at 12:00 PM CT", assigned_to="ghl_automation", payload={"event_id": "...", "slot": "..."})`
+  `case_complete_task(...)` via its **own** prompt calling CASE_AGENT to confirm, OR we permit `case_complete_task` on BOOKING too — to be decided during implementation.
+- GHL_SUPPORT_AGENT after cancelling for a reschedule:
+  `case_add_task(case_id, "cancel_visit", "Cancelled appt X for reschedule flow", payload={"event_id": "..."})`
+- JOBBER_SUPPORT_AGENT after creating a job:
+  `case_add_task(case_id, "book_jobber_job", "Created Jobber job Y at property Z", payload={"job_id": "...", "property_id": "..."})`
+
+#### 11.7 Sanity check (`mgr4smb/checks/phase11_case.py`)
+
+Dry-run + live modes:
+
+`--dry-run` (structural):
+- All 8 case tools import with `@tool` decorator.
+- CASE_AGENT prompt loads, mentions `CASE_READY`, `case_find`, `case_create`, `property_code`, `city`, `caller_type`, `intent`.
+- Schema field list matches the contract above.
+- Orchestrator prompt mentions CASE_AGENT delegation and Step 3.
+
+`--live` (hits MongoDB):
+- `case_create` → `case_find` round-trip recovers the same case.
+- `case_add_task` + `case_complete_task` properly updates `tasks[].status` and sets `completed_at`.
+- `case_update_status` rejects transitions that violate the state machine (e.g. `resolved → open`).
+- Compound index on `(location_id, customer_contact_id, property.code, property.city)` exists and is used by `case_find` (check via `explain()`).
+- `case_list_tasks(status="pending")` returns only pending tasks.
+
+#### 11.8 Files added in Phase 11
+
+```
+mgr4smb/
+├── agents/
+│   └── case.py                   # CASE_AGENT (SYSTEM_PROMPT + TOOLS + build)
+├── tools/
+│   ├── case_client.py            # Shared MongoDB client + compound index setup
+│   ├── case_find.py
+│   ├── case_create.py
+│   ├── case_get.py
+│   ├── case_add_task.py
+│   ├── case_complete_task.py
+│   ├── case_update_status.py
+│   ├── case_log_entry.py
+│   └── case_list_tasks.py
+└── checks/
+    └── phase11_case.py
+```
+
+Plus two new `.env` keys (`MONGODB_CASES_DB`, `MONGODB_CASES_COLLECTION`) and three state fields (`case_id`, `caller_type`, `job_type`).
+
+#### 11.9 Backwards compatibility
+
+- Existing sessions without a case_id still work — specialists should tolerate an empty `case_id` in the delegation message and simply not log tasks in that case. The orchestrator's new Step 3 becomes the point where case linkage begins; everything before Phase 11 retains its current behavior.
+- The migration is additive: the LangGraph checkpointer schema doesn't change; we just populate new fields when they are known.
 
 ---
 
