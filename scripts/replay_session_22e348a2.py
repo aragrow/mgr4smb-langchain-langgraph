@@ -122,9 +122,13 @@ def main() -> int:
         print(_line("═"))
         slot_choice = input("Slot number ▶ ").strip() or "1"
 
-        _print_user(slot_choice)
+        # Wrap the bare digit in unambiguous phrasing so Gemini cannot
+        # misinterpret it as referring to the earlier service list.
+        # ("4" alone has occasionally been mis-parsed as a service choice.)
+        slot_msg = f"I'd like slot {slot_choice}, please."
+        _print_user(slot_msg)
         try:
-            reply = run_turn(graph, slot_choice, session_id=sid, client_id="replay")
+            reply = run_turn(graph, slot_msg, session_id=sid, client_id="replay")
         except Exception as e:
             print(f"  ✗ Error: {type(e).__name__}: {e}")
             return 1
