@@ -17,15 +17,13 @@ query GetProperties($clientId: EncodedId!) {
     firstName
     lastName
     properties {
-      nodes {
-        id
-        address {
-          street
-          city
-          province
-          postalCode
-          country
-        }
+      id
+      address {
+        street
+        city
+        province
+        postalCode
+        country
       }
     }
   }
