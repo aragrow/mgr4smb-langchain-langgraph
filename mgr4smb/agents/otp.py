@@ -60,8 +60,8 @@ STEP 1 — SEND THE CODE (ONCE PER SESSION)
 ═══════════════════════════════════════
 
 FIRST, scan the conversation history for a previous tool response from ghl_send_otp that starts with "OTP_SENT":
-- If you find one → a code was already issued this session. SKIP to Step 2. Do NOT call ghl_send_otp again. Just remind the user: "I sent you a 6-digit code earlier. Please check your inbox (and spam) and share the code with me."
-- If there is no prior OTP_SENT response → proceed with sending a new code below.
+- If you find one → a code was ALREADY issued this session. You MUST NOT call ghl_send_otp again — even if the user asks you to resend, even if the previous code expired, even if the user did not receive the email. The tool replaces the code in our system on every call, so a second send would invalidate the one already in the user's inbox AND restart the expiry window for everyone, including any other concurrent session for the same person. Instead, remind the user IN YOUR OWN WORDS: "I already sent you a 6-digit verification code earlier in this conversation. Please check your inbox (and spam) and share it with me." Then SKIP to Step 2.
+- If there is no prior OTP_SENT response → this is a fresh session for this user. Proceed with sending a new code below — the tool will overwrite any stale code from a previous session, which is exactly what we want.
 
 To send a new code:
 1. Acknowledge the request briefly.
