@@ -127,6 +127,18 @@ GHL_CALENDAR_ID=             # GoHighLevel Calendar ID
 GHL_ORG_TIMEZONE=America/Chicago
 GHL_SLOT_DURATION_MINUTES=30
 
+# --- GoHighLevel OTP custom fields (override per client if needed) ---
+# Must match the fieldKey of the custom fields created in GHL under
+# Settings > Custom Fields. The values must include the "contact." prefix.
+GHL_OTP_CODE_FIELD_KEY=contact.otp_code
+GHL_OTP_EXPIRY_FIELD_KEY=contact.otp_expires_at
+GHL_OTP_LIFETIME_MINUTES=15
+
+# --- Company contact info (used in escalation messages) ---
+COMPANY_NAME=Aragrow LLC
+COMPANY_SUPPORT_EMAIL=        # Optional — appears in OTP escalation reply
+COMPANY_SUPPORT_PHONE=        # Optional — appears in OTP escalation reply
+
 # --- MongoDB (knowledge base) ---
 MONGODB_ATLAS_URI=           # MongoDB connection string
 MONGODB_DB_NAME=aragrow-llc
@@ -195,59 +207,79 @@ JOBBER_TOKENS_FILE=.tokens.json  # Path to Jobber OAuth tokens file
 
 **Goal:** Create the project skeleton and shared modules.
 
-**Directory structure:**
+**Directory structure (current):**
 ```
-mgr4smb/
-├── __init__.py
-├── config.py               # Load .env, expose settings
-├── llm.py                  # Shared LLM and embeddings factory
-├── state.py                # LangGraph shared state definition
-├── graph.py                # Main LangGraph graph assembly
-├── memory.py               # Checkpointer setup (MongoDBSaver for persistence)
-├── api.py                  # FastAPI app — single public endpoint for chat
-├── auth.py                 # JWT validation + client_id verification
-├── logging_config.py       # Structured logging setup (shared by all modules)
-├── exceptions.py           # Custom exception hierarchy
-├── checks/                 # Sanity checks — one per phase
-│   ├── __init__.py
-│   ├── run_all.py          # Cumulative runner: python -m mgr4smb.checks.run_all --up-to N
-│   ├── phase2_skeleton.py  # Verify imports, config, LLM factory, logging, exceptions
-│   ├── phase3_ghl.py       # Verify each GHL tool (--dry-run or --live)
-│   ├── phase4_jobber.py    # Verify each Jobber tool (--dry-run or --live)
-│   ├── phase5_mongodb.py   # Verify vector search returns results
-│   ├── phase6_prompts.py   # Verify all prompts load and are non-empty
-│   ├── phase7_agents.py    # Verify each agent responds to a test message
-│   ├── phase8_graph.py     # Verify full graph executes end-to-end
-│   └── phase9_api.py       # Verify API auth + endpoint
-├── tools/
-│   ├── __init__.py
-│   ├── ghl_client.py            # Shared GHL httpx.Client (connection pooling, auth headers, timeouts)
-│   ├── jobber_client.py         # Shared Jobber GraphQL client (auth, token refresh, timeouts)
-│   ├── ghl_contact_lookup.py
-│   ├── ghl_available_slots.py
-│   ├── ghl_book_appointment.py
-│   ├── ghl_get_appointments.py
-│   ├── ghl_cancel_appointment.py
-│   ├── ghl_send_otp.py          # Used by OTP_AGENT
-│   ├── ghl_verify_otp.py        # Used by OTP_AGENT
-│   ├── jobber_get_clients.py
-│   ├── jobber_get_properties.py
-│   ├── jobber_get_jobs.py
-│   ├── jobber_get_visits.py
-│   ├── jobber_create_client.py
-│   ├── jobber_create_property.py
-│   ├── jobber_create_job.py
-│   ├── jobber_send_message.py   # [future]
-│   └── mongodb_knowledge_base.py
-└── agents/                 # Each agent file contains its SYSTEM_PROMPT + agent setup
+.                              # Project root
+├── pyproject.toml             # Dependencies, build backend
+├── .env / .env.example        # Secrets and config
+├── clients.json               # Client + JWT registry (gitignored)
+├── .tokens.json               # Jobber OAuth tokens (gitignored)
+├── .mgr4smb.pid               # Server PID file (gitignored)
+├── logs/                      # Rotating log directory (gitignored)
+├── menu.sh                    # Operations menu (start/stop/health/clients)
+├── main.py                    # CLI entry: python main.py --cli
+├── PLAN.md                    # This file
+├── chat-ui/                   # Self-contained web chat UI (served by FastAPI)
+│   ├── index.html             # Topbar + settings + chat + composer
+│   ├── chat.css               # Dark theme + sender labels + typing dots
+│   └── chat.js                # JWT in localStorage, /chat polling, session_id
+├── scripts/
+│   ├── check_env.py                       # Phase 1 standalone gate
+│   └── replay_session_22e348a2.py         # Replay-the-failing-flow script
+└── mgr4smb/                   # Main package
     ├── __init__.py
-    ├── orchestrator.py     # SYSTEM_PROMPT = """...""" + create_react_agent(...)
-    ├── greeting.py
-    ├── general_info.py
-    ├── booking.py
-    ├── otp.py
-    ├── ghl_support.py
-    └── jobber_support.py
+    ├── config.py              # Settings singleton — all .env reads
+    ├── llm.py                 # get_llm() + get_embeddings() singletons
+    ├── state.py               # AgentState TypedDict — single source of truth
+    ├── graph.py               # build_graph() + run_turn() + get_history()
+    ├── memory.py              # checkpointer_context() yields MongoDBSaver
+    ├── api.py                 # FastAPI app + /health + /chat + chat-ui mount
+    ├── auth.py                # verify_token() + issue_token()
+    ├── logging_config.py      # setup_logging() — stderr + rotating file
+    ├── exceptions.py          # Mgr4smbError hierarchy
+    ├── checks/                # Sanity gates — one per phase
+    │   ├── __init__.py
+    │   ├── run_all.py         # Cumulative runner with --fast / --up-to N
+    │   ├── phase2_skeleton.py
+    │   ├── phase3_ghl.py
+    │   ├── phase4_jobber.py
+    │   ├── phase5_mongodb.py
+    │   ├── phase6_prompts.py
+    │   ├── phase7_agents.py
+    │   ├── phase8_graph.py
+    │   ├── phase9_api.py
+    │   └── phase10_full.py    # End-to-end via FastAPI TestClient
+    ├── tools/
+    │   ├── __init__.py
+    │   ├── ghl_client.py            # Shared httpx.Client + search_contact +
+    │   │                            # fetch_contact + resolve_custom_field_id
+    │   ├── jobber_client.py         # Shared GraphQL client + OAuth refresh
+    │   ├── ghl_contact_lookup.py
+    │   ├── ghl_available_slots.py
+    │   ├── ghl_book_appointment.py
+    │   ├── ghl_get_appointments.py
+    │   ├── ghl_cancel_appointment.py
+    │   ├── ghl_send_otp.py          # Always overwrites; session-once is the prompt's job
+    │   ├── ghl_verify_otp.py        # Reads via fresh GET; keeps code on wrong attempts
+    │   ├── jobber_get_clients.py
+    │   ├── jobber_get_properties.py
+    │   ├── jobber_get_jobs.py
+    │   ├── jobber_get_visits.py
+    │   ├── jobber_create_client.py
+    │   ├── jobber_create_property.py
+    │   ├── jobber_create_job.py
+    │   ├── jobber_send_message.py   # [future stub]
+    │   └── mongodb_knowledge_base.py
+    └── agents/                # Each file: SYSTEM_PROMPT + TOOLS + build()
+        ├── __init__.py
+        ├── _helpers.py        # agent_as_tool() — wraps subgraph w/ InjectedState
+        ├── orchestrator.py
+        ├── greeting.py
+        ├── general_info.py
+        ├── booking.py
+        ├── otp.py             # Imports settings for company contact escalation
+        ├── ghl_support.py
+        └── jobber_support.py
 ```
 
 **Key files in this phase:**
@@ -851,16 +883,21 @@ Interactive shell script for managing the service and client credentials.
   2) Stop server
   3) Restart server
   4) Server status
-  5) Create new client + JWT
-  6) List clients
-  7) Reissue JWT for existing client
-  8) Revoke client (disable)
-  9) Exit
+  5) Health check (GET /health)
+  6) Create new client + JWT
+  7) List clients
+  8) Reissue JWT for existing client
+  9) Revoke client (disable)
+ 10) Exit
 ═══════════════════════════════════════
 ```
 
 **Option 1 — Start server:**
 - Checks if already running (PID file at `.mgr4smb.pid`)
+- Cleans up stale PID file when the recorded PID is not actually running
+- Refuses to start if another process is already bound to the configured port,
+  printing the occupying command + PID so you can decide to kill it or set
+  `MGR4SMB_PORT` to a different port
 - Activates `.venv` (checks for `.venv/bin/activate`, exits with error if missing)
 - Loads `.env` and validates required vars are set
 - Starts `uvicorn mgr4smb.api:app --host 0.0.0.0 --port 8000` in background
@@ -879,8 +916,17 @@ Interactive shell script for managing the service and client credentials.
 **Option 4 — Server status:**
 - Checks if PID file exists and process is alive
 - Shows uptime, port, PID
+- If our server isn't running but something else holds the port, reports the
+  occupying process
 
-**Option 5 — Create new client + JWT:**
+**Option 5 — Health check (GET /health):**
+- Calls `GET http://localhost:<PORT>/health` (unauthenticated)
+- Pretty-prints the JSON response (`{ "status": ..., "checks": { "mongodb": ..., "llm": ... } }`)
+- Reports `OK` (200), `DEGRADED` (503), or `UNEXPECTED` (other)
+- Useful for verifying both the server AND its downstream dependencies
+  (MongoDB checkpointer + Gemini) are reachable
+
+**Option 6 — Create new client + JWT:**
 1. Prompts for client name (e.g., "Aragrow LLC")
 2. Generates a UUID v4 for `client_id` (via `python -c "import uuid; print(uuid.uuid4())"`)
 3. Prompts for token expiration (default: 365 days)
@@ -906,10 +952,10 @@ Interactive shell script for managing the service and client credentials.
 6. Prints the client_id (UUID) and the JWT token
 7. Warns: "Save this token — it cannot be retrieved later"
 
-**Option 6 — List clients:**
+**Option 7 — List clients:**
 - Reads `clients.json` and prints a table: client_id (UUID), name, enabled, created_at
 
-**Option 7 — Reissue JWT for existing client:**
+**Option 8 — Reissue JWT for existing client:**
 - Lists enabled clients (client_id, name)
 - Prompts for the client_id (UUID) to reissue
 - Validates client exists and is enabled in `clients.json`
@@ -918,7 +964,7 @@ Interactive shell script for managing the service and client credentials.
 - Prints the new token
 - Note: the old token remains valid until it expires — if you need to invalidate it immediately, revoke the client (option 8) and re-enable + reissue
 
-**Option 8 — Revoke client (disable):**
+**Option 9 — Revoke client (disable):**
 - Lists active clients
 - Prompts for client_id to disable
 - Sets `enabled: false` in `clients.json`
@@ -1060,3 +1106,57 @@ python -m mgr4smb.checks.run_all --up-to 5
 Phases 3, 4, 5, and 6 can be done **in parallel** since they are independent.
 
 **After each phase:** run `python -m mgr4smb.checks.run_all --up-to N` to verify the current phase AND all previous phases still pass.
+
+---
+
+## Post-Build Refinements
+
+The following changes were made after the initial 10-phase build, in response to live debugging and policy refinements. All are reflected in the directory structure, env vars, and behavior described above.
+
+### Web chat UI (`chat-ui/`)
+- Self-contained vanilla HTML/CSS/JS chat window served same-origin from FastAPI at `/chat-ui/`. No build step, no npm dependency.
+- Visible "YOU" / "AGENT" sender labels with timestamps on every message; typing indicator shows "AGENT …" while the turn is in flight.
+- JWT lives in `localStorage` when "remember" is checked; settings panel handles API base + token entry.
+
+### LangSmith trace tagging
+- `run_turn` now passes `run_name="Turn — <session-prefix>"`, `tags=["mgr4smb", "session:<uuid>", "client:<uuid8>"]`, and `metadata={"session_id": ..., "client_id": ...}` to `graph.invoke`.
+- Conversations are searchable in the LangSmith UI by `tags has "session:<uuid>"`.
+
+### LLM determinism
+- `get_llm()` pins `temperature=0.2` to reduce Gemini's empty-output flakiness on agent tool-routing turns.
+- `run_turn` snapshots the message count BEFORE invoking so empty turns no longer surface a stale older AI message.
+- One automatic retry on empty output, with a short "please respond or take the appropriate next action" nudge.
+
+### Booking agent — service handling
+- Services come from the conversation history; the agent never presents services as a numbered menu.
+- Multiple listed services become one combined appointment by default.
+- Numbered lists are reserved exclusively for slot times. A bare `"4"` after a slot offer is treated as slot #4.
+
+### GHL custom fields — write & read paths
+- New `ghl_client.resolve_custom_field_id(key_or_id)` resolves human-readable field keys (e.g. `contact.otp_code`) to GHL field UUIDs via `GET /locations/{loc}/customFields`. Cached per process.
+- New `ghl_client.fetch_contact(contact_id)` does `GET /contacts/{id}` for canonical fresh values. Use this for any field that was just written; `/contacts/search` returns a stale index.
+- Both `ghl_send_otp` and `ghl_verify_otp` now PUT and read using field IDs (not keys). Without this, GHL silently accepted writes but persisted nothing.
+
+### Phone normalization
+- `_normalize_phone` returns the last 10 significant digits, so `'+19522281752'`, `'(952) 228-1752'`, `'9522281752'` all match. Genuinely different numbers still mismatch.
+
+### OTP session policy (definitive)
+- **Tool layer (`ghl_send_otp`)**: stateless. Every call generates a fresh code, computes a fresh expiry, and overwrites the GHL custom fields. No reuse logic.
+- **Tool layer (`ghl_verify_otp`)**: keeps the stored code intact on wrong-code attempts (so retries hit the same code); clears it only on success or expiry. Reads via `fetch_contact` to bypass the search-index lag.
+- **Prompt layer (`OTP_AGENT`)**: enforces "send once per session" by scanning the conversation history for a prior `OTP_SENT` before deciding to call `ghl_send_otp`. If a prior `OTP_SENT` exists, paraphrases the reminder; if the code expired mid-session, escalates rather than regenerating.
+- **Prompt layer (`OTP_AGENT`)**: caps verify attempts at 2. On a 3rd wrong code (or any unrecoverable UNVERIFIED), produces an escalation reply that always starts with `"UNVERIFIED"` and includes the company contact info from `COMPANY_NAME` / `COMPANY_SUPPORT_EMAIL` / `COMPANY_SUPPORT_PHONE`.
+
+### Operations menu (`menu.sh`)
+- Added option **5 (Health check)** — calls `GET /health` and pretty-prints the JSON.
+- `start_server` cleans stale PID files and refuses to start if another process holds the port.
+- `status_server` reports occupants when our server isn't running but the port is bound.
+
+### `run_turn` and graph improvements
+- `run_turn(graph, message, session_id, client_id="")` is the single chat invocation helper.
+- Tracks pre-turn message count for clean response extraction.
+- Retries once on empty output before falling back to a graceful "I wasn't able to produce a response" message.
+- Tags every invocation for LangSmith filtering.
+
+### Replay script (`scripts/replay_session_22e348a2.py`)
+- Walks the exact failing conversation (WordPress help → email → phone → service → timezone → slot offer → OTP) so the full flow can be tested with one command.
+- `--stop-before-otp` is a non-interactive smoke gate; default mode pauses for slot pick and OTP code entry.
