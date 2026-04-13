@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, timezone
 
 from langchain_core.tools import tool
 
-from mgr4smb.config import settings
 from mgr4smb.exceptions import GHLAPIError
 from mgr4smb.tools import ghl_client
 
@@ -23,8 +22,19 @@ OTP_LIFETIME_MINUTES = 15
 
 
 def _normalize_phone(phone: str) -> str:
-    """Strip non-digit chars for comparison."""
-    return "".join(c for c in phone if c.isdigit())
+    """Return the last 10 significant digits of a phone number for comparison.
+
+    This makes matching robust to:
+      - formatting differences ('(952) 228-1752' vs '952-228-1752')
+      - optional country code for US/CA numbers ('+19522281752' vs '9522281752')
+      - leading zeros, spaces, dots, plus signs
+
+    For numbers shorter than 10 digits (likely an input mistake), the caller
+    still gets back whatever digits are present so the explicit mismatch
+    branch fires rather than a silent false-positive match.
+    """
+    digits = "".join(c for c in phone if c.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
 
 
 @tool
