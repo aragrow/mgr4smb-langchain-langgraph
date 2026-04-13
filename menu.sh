@@ -183,6 +183,35 @@ health_check() {
 }
 
 # ---------------------------------------------------------------------------
+# Jobber OAuth bootstrap — runs the two one-time auth scripts
+# ---------------------------------------------------------------------------
+_run_script() {
+    _require_venv
+    _require_env
+    # shellcheck disable=SC1091
+    source "$VENV/bin/activate"
+    python "$@"
+}
+
+authorize_jobber() {
+    _info "Launching scripts/authorize_jobber.py"
+    _info "Opens the Jobber authorize URL in your default browser."
+    _info "After you grant access the browser will redirect to"
+    _info "http://localhost:8765/callback?code=… — copy the whole URL"
+    _info "(or just the code= value) for the next step."
+    echo
+    _run_script scripts/authorize_jobber.py
+}
+
+bootstrap_jobber_tokens() {
+    _info "Launching scripts/bootstrap_jobber_tokens.py"
+    _info "Paste the code (or full redirect URL) when prompted."
+    _info "On success .tokens.json is written with mode 0600."
+    echo
+    _run_script scripts/bootstrap_jobber_tokens.py
+}
+
+# ---------------------------------------------------------------------------
 # Client + JWT management (uses Python helpers via .venv)
 # ---------------------------------------------------------------------------
 _run_py() {
@@ -361,20 +390,32 @@ PYEOF
 show_menu() {
     cat <<'EOF'
 
-═══════════════════════════════════════
-  mgr4smb — Operations Menu
-═══════════════════════════════════════
-  1) Start server
-  2) Stop server
-  3) Restart server
-  4) Server status
-  5) Health check (GET /health)
-  6) Create new client + JWT
-  7) List clients
-  8) Reissue JWT for existing client
-  9) Revoke client (disable)
- 10) Exit
-═══════════════════════════════════════
+══════════════════════════════════════════════════════════════
+                mgr4smb — Operations Menu
+══════════════════════════════════════════════════════════════
+
+┌─ SERVER ─────────────────────────────────────────────────────
+│    1) Start server
+│    2) Stop server
+│    3) Restart server
+│    4) Server status
+│    5) Health check  (GET /health)
+└──────────────────────────────────────────────────────────────
+
+┌─ CLIENTS & JWTS ─────────────────────────────────────────────
+│    6) Create new client + JWT
+│    7) List clients
+│    8) Reissue JWT for existing client
+│    9) Revoke client (disable)
+└──────────────────────────────────────────────────────────────
+
+┌─ JOBBER OAUTH BOOTSTRAP  (one-time per deployment) ──────────
+│   10) Authorize Jobber   (open authorize URL in browser)
+│   11) Bootstrap tokens   (paste code, write .tokens.json)
+└──────────────────────────────────────────────────────────────
+
+   12) Exit
+══════════════════════════════════════════════════════════════
 EOF
 }
 
@@ -383,17 +424,19 @@ main() {
         show_menu
         read -r -p "  Choice: " choice
         case "$choice" in
-            1) start_server ;;
-            2) stop_server ;;
-            3) restart_server ;;
-            4) status_server ;;
-            5) health_check ;;
-            6) create_client ;;
-            7) list_clients ;;
-            8) reissue_client ;;
-            9) revoke_client ;;
-            10) _info "Bye."; exit 0 ;;
-            *) _warn "Invalid choice: $choice" ;;
+            1)  start_server ;;
+            2)  stop_server ;;
+            3)  restart_server ;;
+            4)  status_server ;;
+            5)  health_check ;;
+            6)  create_client ;;
+            7)  list_clients ;;
+            8)  reissue_client ;;
+            9)  revoke_client ;;
+            10) authorize_jobber ;;
+            11) bootstrap_jobber_tokens ;;
+            12) _info "Bye."; exit 0 ;;
+            *)  _warn "Invalid choice: $choice" ;;
         esac
     done
 }
