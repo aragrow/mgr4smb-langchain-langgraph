@@ -79,22 +79,54 @@
   }
 
   function addMessage(role, text) {
-    const div = document.createElement("div");
-    div.className = "msg " + (role === "user" ? "msg-user" : role === "system" ? "msg-system" : "msg-bot");
-    div.textContent = text;
-    dom.chat.appendChild(div);
+    // Each message is a row: [ sender label | bubble ]
+    // The row alignment (left/right) is controlled by the row class,
+    // so the label always sits above the bubble on the sender's side.
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row " +
+      (role === "user" ? "row-user" : role === "system" ? "row-system" : "row-bot");
+
+    if (role !== "system") {
+      const label = document.createElement("div");
+      label.className = "msg-label";
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+      const sender = role === "user" ? "You" : "Agent";
+      label.innerHTML =
+        `<span class="sender">${sender}</span>` +
+        `<span class="timestamp">${hhmm}</span>`;
+      wrap.appendChild(label);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "msg " +
+      (role === "user" ? "msg-user" : role === "system" ? "msg-system" : "msg-bot");
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+
+    dom.chat.appendChild(wrap);
     dom.chat.scrollTop = dom.chat.scrollHeight;
-    return div;
+    return wrap;
   }
 
   function addTypingIndicator() {
-    const div = document.createElement("div");
-    div.className = "msg-typing";
-    div.id = "typing";
-    div.innerHTML = "<span></span><span></span><span></span>";
-    dom.chat.appendChild(div);
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row row-bot";
+    wrap.id = "typing";
+
+    const label = document.createElement("div");
+    label.className = "msg-label";
+    label.innerHTML = `<span class="sender">Agent</span><span class="timestamp">…</span>`;
+    wrap.appendChild(label);
+
+    const dots = document.createElement("div");
+    dots.className = "msg-typing";
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    wrap.appendChild(dots);
+
+    dom.chat.appendChild(wrap);
     dom.chat.scrollTop = dom.chat.scrollHeight;
-    return div;
+    return wrap;
   }
 
   function removeTypingIndicator() {

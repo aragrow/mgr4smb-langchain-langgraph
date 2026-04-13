@@ -134,16 +134,48 @@ code { font-family: var(--mono); background: var(--surface-2); padding: 1px 6px;
   padding: 20px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+}
+
+/* Each chat message is a row with a sender label above the bubble.
+   row-user aligns right, row-bot aligns left, row-system centers. */
+.msg-row {
+  display: flex;
+  flex-direction: column;
+  max-width: 78%;
+  animation: slide-in 0.18s ease-out;
+}
+
+.row-user   { align-self: flex-end;   align-items: flex-end; }
+.row-bot    { align-self: flex-start; align-items: flex-start; }
+.row-system { align-self: center;     align-items: center; max-width: 90%; }
+
+.msg-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 0 4px;
+}
+.msg-label .sender {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.row-user .msg-label .sender { color: var(--accent); }
+.row-bot  .msg-label .sender { color: #a9b3c4; }
+.msg-label .timestamp {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
 }
 
 .msg {
-  max-width: 75%;
   padding: 10px 14px;
   border-radius: var(--radius);
   white-space: pre-wrap;
   word-wrap: break-word;
-  animation: slide-in 0.18s ease-out;
 }
 
 @keyframes slide-in {
@@ -152,30 +184,25 @@ code { font-family: var(--mono); background: var(--surface-2); padding: 1px 6px;
 }
 
 .msg-user {
-  align-self: flex-end;
   background: var(--user);
   border-bottom-right-radius: 2px;
 }
 
 .msg-bot {
-  align-self: flex-start;
   background: var(--bot);
   border-bottom-left-radius: 2px;
   border: 1px solid var(--border);
 }
 
 .msg-system {
-  align-self: center;
   background: transparent;
   color: var(--muted);
   font-style: italic;
   border: 1px dashed var(--border);
   text-align: center;
-  max-width: 90%;
 }
 
 .msg-typing {
-  align-self: flex-start;
   background: var(--bot);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -239,7 +266,7 @@ code { font-family: var(--mono); background: var(--surface-2); padding: 1px 6px;
 
 /* Small screens */
 @media (max-width: 600px) {
-  .msg { max-width: 90%; }
+  .msg-row { max-width: 92%; }
   .topbar { padding: 10px 12px; }
   .settings { padding: 12px; }
   .chat { padding: 14px 10px; }

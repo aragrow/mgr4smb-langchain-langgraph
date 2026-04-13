@@ -144,30 +144,76 @@ def run_turn(
         extra={"session_id": session_id, "client_id": client_id},
     )
 
-    result = graph.invoke(
-        {"messages": [HumanMessage(content=message)]},
-        config=config,
+    # Snapshot message count BEFORE this turn so we can isolate NEW messages.
+    # Without this, an empty turn response would fall back to a stale older
+    # AI message from a previous turn — the user would see the previous
+    # response repeated, which looks like the bot is broken.
+    pre_state = graph.get_state(config)
+    pre_count = 0
+    if pre_state is not None and pre_state.values:
+        pre_count = len(pre_state.values.get("messages", []))
+
+    def _invoke_and_extract(input_msgs: list) -> str | None:
+        """Run the graph once and return the first non-empty AI text from the
+        new messages, or None if the turn produced no AI text at all.
+        """
+        result = graph.invoke({"messages": input_msgs}, config=config)
+        all_msgs = result.get("messages", [])
+        new_msgs = all_msgs[pre_count:]
+        for msg in reversed(new_msgs):
+            if not isinstance(msg, AIMessage):
+                continue
+            c = getattr(msg, "content", "")
+            if isinstance(c, list):
+                c = " ".join(
+                    blk.get("text", "") if isinstance(blk, dict) else str(blk)
+                    for blk in c
+                )
+            if c:
+                return c
+        return None
+
+    reply = _invoke_and_extract([HumanMessage(content=message)])
+
+    # Retry once on empty output. Gemini 2.5 Flash occasionally returns
+    # finish_reason=STOP with output_tokens=0 — a single retry rescues most
+    # of these without significant latency or cost. We nudge the model on
+    # the retry with an inlined reminder so the second pass is not
+    # identical to the first.
+    if reply is None:
+        logger.warning(
+            "Turn produced no AI text — retrying once",
+            extra={"session_id": session_id},
+        )
+        nudge = HumanMessage(
+            content=(
+                f"{message}\n\n"
+                "(Please respond or take the appropriate next action.)"
+            )
+        )
+        # Update pre_count because the first failed attempt appended messages
+        mid_state = graph.get_state(config)
+        if mid_state is not None and mid_state.values:
+            pre_count = len(mid_state.values.get("messages", []))
+        reply = _invoke_and_extract([nudge])
+
+    if reply is not None:
+        logger.info(
+            "Turn completed",
+            extra={"session_id": session_id, "reply_chars": len(reply)},
+        )
+        return reply
+
+    # Still empty after retry — return graceful fallback; never recycle an
+    # older turn's content.
+    logger.warning(
+        "Turn produced no AI text after retry",
+        extra={"session_id": session_id},
     )
-
-    # Extract final AI text
-    msgs = result.get("messages", [])
-    for msg in reversed(msgs):
-        if not isinstance(msg, AIMessage):
-            continue
-        content = getattr(msg, "content", "")
-        if isinstance(content, list):
-            content = " ".join(
-                blk.get("text", "") if isinstance(blk, dict) else str(blk)
-                for blk in content
-            )
-        if content:
-            logger.info(
-                "Turn completed",
-                extra={"session_id": session_id, "reply_chars": len(content)},
-            )
-            return content
-
-    return "(no response)"
+    return (
+        "I wasn't able to produce a response just now. "
+        "Could you rephrase or try again?"
+    )
 
 
 def get_history(graph, session_id: str) -> list:

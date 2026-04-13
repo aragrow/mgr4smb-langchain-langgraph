@@ -13,14 +13,20 @@ _embeddings: GoogleGenerativeAIEmbeddings | None = None
 
 
 def get_llm() -> ChatGoogleGenerativeAI:
-    """Return a singleton ChatGoogleGenerativeAI (gemini-2.5-flash)."""
+    """Return a singleton ChatGoogleGenerativeAI (gemini-2.5-flash).
+
+    temperature=0.2 is important for agent orchestration: the default (~1.0)
+    occasionally causes Gemini to emit an empty response with finish_reason=STOP
+    when deciding between tool calls. Low temperature keeps tool-routing stable.
+    """
     global _llm
     if _llm is None:
         _llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=settings.google_api_key,
+            temperature=0.2,
         )
-        logger.info("LLM initialised model=gemini-2.5-flash")
+        logger.info("LLM initialised model=gemini-2.5-flash temperature=0.2")
     return _llm
 
 
