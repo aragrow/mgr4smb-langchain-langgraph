@@ -15,26 +15,31 @@ from mgr4smb.tools import ghl_client
 logger = logging.getLogger(__name__)
 
 
-def _clear_otp(client, contact_id: str) -> None:
-    """Clear OTP fields on the contact to prevent reuse.
+def _invalidate_otp(client, contact_id: str) -> None:
+    """Mark the stored OTP as consumed by back-dating its expiry field.
 
-    Uses field IDs (not keys) — the GHL contacts PUT silently ignores
-    the key form and leaves fields untouched.
+    We used to clear BOTH the code and expiry fields, but the client's GHL
+    workflow that sends the OTP email fires on any change to `otp_code` —
+    clearing it to empty triggered a second email containing a blank code.
+    So we now leave the code field alone and ONLY invalidate by writing a
+    past timestamp into the expiry field. ghl_verify_otp rejects any code
+    whose stored expiry is in the past, so a replay with the same code
+    fails the same as a clear did — without firing the email workflow.
     """
     try:
-        code_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_code_field_key)
         expiry_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_expiry_field_key)
+        # 1970-01-01 is unambiguously "consumed" for any reader of this field.
+        past = datetime.fromtimestamp(0, tz=timezone.utc).isoformat()
         client.put(
             f"/contacts/{contact_id}",
             json={
                 "customFields": [
-                    {"id": code_field_id, "value": ""},
-                    {"id": expiry_field_id, "value": ""},
+                    {"id": expiry_field_id, "value": past},
                 ],
             },
         )
     except Exception:
-        logger.warning("Failed to clear OTP fields", extra={"contact_id": contact_id})
+        logger.warning("Failed to invalidate OTP expiry", extra={"contact_id": contact_id})
 
 
 @tool
@@ -94,7 +99,9 @@ def ghl_verify_otp(contact_identifier: str, otp_code: str) -> str:
             try:
                 expiry_dt = datetime.fromisoformat(stored_expiry)
                 if datetime.now(timezone.utc) > expiry_dt:
-                    _clear_otp(client, contact_id)
+                    # Already expired — nothing new to invalidate. Don't
+                    # write anything back; that would re-trigger workflows
+                    # on the code field for no reason.
                     logger.warning("OTP expired", extra={"tool": "ghl_verify_otp", "contact_id": contact_id})
                     return "UNVERIFIED: The verification code has expired. Please request a new one."
             except ValueError:
@@ -105,8 +112,10 @@ def ghl_verify_otp(contact_identifier: str, otp_code: str) -> str:
             logger.warning("OTP wrong code", extra={"tool": "ghl_verify_otp", "contact_id": contact_id})
             return "UNVERIFIED: The code you entered is incorrect. Please try again."
 
-        # Success — clear the OTP fields
-        _clear_otp(client, contact_id)
+        # Success — invalidate by back-dating expiry only. Do NOT clear the
+        # code field: that would re-trigger the GHL email workflow with an
+        # empty code.
+        _invalidate_otp(client, contact_id)
 
     except GHLAPIError:
         raise
