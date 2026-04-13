@@ -163,31 +163,48 @@ async def _catch_all_handler(request: Request, exc: Exception):
 # --------------------------------------------------------------------------
 
 @app.get("/health")
-async def health():
-    """Unauthenticated health check. Returns 200 if all subsystems are up."""
-    checks = {"mongodb": "unknown", "llm": "unknown"}
+async def health(deep: bool = False):
+    """Unauthenticated health check.
 
-    # MongoDB ping
+    By default this is a cheap liveness probe — it pings MongoDB and
+    confirms the LLM client can be constructed, without actually invoking
+    Gemini (which costs tokens). The chat UI polls this every few
+    minutes, so avoiding LLM calls saves meaningful money.
+
+    Pass `?deep=true` to additionally run a minimal LLM invoke when you
+    want a true end-to-end readiness check (menu.sh option 5 uses this
+    via the query param, and on-demand debugging). Reserved for rare use.
+    """
+    checks: dict[str, str] = {"mongodb": "unknown", "llm": "unknown"}
+
+    # MongoDB ping (cheap — one round-trip, no data)
     try:
         _get_mongo_client().admin.command("ping")
         checks["mongodb"] = "ok"
     except Exception as e:
         checks["mongodb"] = f"error: {e}"
 
-    # LLM ping — cheap no-op invoke
+    # LLM check — cheap by default (just construct the client object),
+    # deep on request (actually invoke the model).
     try:
         llm = get_llm()
-        # A minimal, short prompt — just verify the client is functional.
-        _ = llm.invoke("ok")
-        checks["llm"] = "ok"
+        if deep:
+            # Minimal prompt — small token cost, verifies Gemini reachable.
+            _ = llm.invoke("ok")
+            checks["llm"] = "ok (deep)"
+        else:
+            # Liveness: client was constructed successfully; actual
+            # reachability is proven by real chat traffic.
+            checks["llm"] = "ok"
     except Exception as e:
         checks["llm"] = f"error: {e}"
 
-    overall_ok = all(v == "ok" for v in checks.values())
+    overall_ok = all(v.startswith("ok") for v in checks.values())
     status_code = 200 if overall_ok else 503
     body = {
         "status": "ok" if overall_ok else "degraded",
         "checks": checks,
+        "deep": deep,
     }
     return JSONResponse(status_code=status_code, content=body)
 

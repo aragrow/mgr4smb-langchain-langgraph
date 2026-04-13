@@ -282,7 +282,37 @@
   renderSettings();
   renderSession();
   checkHealth();
-  setInterval(checkHealth, 30000);  // every 30s
+
+  // Poll health ~12 times per day (every 2 hours), and only while the
+  // tab is visible. The original 30s interval created ~2,880 calls per
+  // tab per day, which flooded LangSmith with traces from the LLM ping
+  // that was inside /health. /health no longer invokes the LLM by
+  // default (deep=true is opt-in), but we still keep polling light —
+  // the status dot refreshes on every real chat request anyway via the
+  // response, and becomes-visible triggers an immediate check so the
+  // dot is never wrong for long after returning to the tab.
+  const HEALTH_POLL_MS = 2 * 60 * 60 * 1000;  // 2 hours = ~12 polls/day
+  let healthTimer = null;
+  function startHealthPolling() {
+    if (healthTimer !== null) return;
+    healthTimer = setInterval(checkHealth, HEALTH_POLL_MS);
+  }
+  function stopHealthPolling() {
+    if (healthTimer === null) return;
+    clearInterval(healthTimer);
+    healthTimer = null;
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      checkHealth();
+      startHealthPolling();
+    } else {
+      stopHealthPolling();
+    }
+  });
+  if (document.visibilityState === "visible") {
+    startHealthPolling();
+  }
 
   if (!state.token) {
     dom.settings.hidden = false;
