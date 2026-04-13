@@ -68,18 +68,52 @@ def ghl_send_otp(contact_email: str, contact_phone: str) -> str:
 
         contact_id = contact["id"]
 
+        # Resolve the human-readable field keys → real GHL field ids.
+        # GHL silently ignores PUTs that use the key form, leaving the
+        # fields blank (which leaves the workflow email blank too).
+        code_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_code_field_key)
+        expiry_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_expiry_field_key)
+
+        # Send-once guard: if there's already an unexpired code on this
+        # contact, reuse it rather than overwriting. This enforces the
+        # policy that a verification code is issued ONCE per active
+        # verification window — if the user didn't enter it correctly the
+        # first time, they get their retries against the same code, not a
+        # fresh one. When the code actually expires, verify_otp clears it,
+        # so a subsequent send_otp call naturally generates a new one.
+        fresh = ghl_client.fetch_contact(contact_id)
+        existing_code = ""
+        existing_expiry = ""
+        for f in fresh.get("customFields", []):
+            fid = f.get("id", "")
+            if fid == code_field_id:
+                existing_code = (f.get("value", "") or "").strip()
+            elif fid == expiry_field_id:
+                existing_expiry = (f.get("value", "") or "").strip()
+
+        if existing_code and existing_expiry:
+            try:
+                exp_dt = datetime.fromisoformat(existing_expiry)
+                if datetime.now(timezone.utc) < exp_dt:
+                    logger.info(
+                        "OTP reuse (unexpired code exists)",
+                        extra={"tool": "ghl_send_otp", "contact_id": contact_id},
+                    )
+                    return (
+                        "OTP_SENT: A verification code was already sent to the "
+                        "email on file. Please check your inbox (and spam) — the "
+                        "existing code is still valid."
+                    )
+            except ValueError:
+                # Malformed expiry timestamp — treat as no active code
+                pass
+
         # Generate OTP
         otp_code = f"{secrets.randbelow(900000) + 100000}"
         expires_at = (
             datetime.now(timezone.utc)
             + timedelta(minutes=settings.ghl_otp_lifetime_minutes)
         ).isoformat()
-
-        # Resolve the human-readable field keys → real GHL field ids.
-        # GHL silently ignores PUTs that use the key form, leaving the
-        # fields blank (which leaves the workflow email blank too).
-        code_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_code_field_key)
-        expiry_field_id = ghl_client.resolve_custom_field_id(settings.ghl_otp_expiry_field_key)
 
         # Store OTP on the contact (triggers GHL workflow to email the code)
         client = ghl_client.get_client()

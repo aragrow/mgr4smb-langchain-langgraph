@@ -94,6 +94,19 @@ class _Settings:
     def ghl_otp_lifetime_minutes(self) -> int:
         return int(_optional("GHL_OTP_LIFETIME_MINUTES", "15"))
 
+    # --- Company contact info (used in graceful escalation messages) ---
+    @property
+    def company_support_email(self) -> str:
+        return _optional("COMPANY_SUPPORT_EMAIL", "")
+
+    @property
+    def company_support_phone(self) -> str:
+        return _optional("COMPANY_SUPPORT_PHONE", "")
+
+    @property
+    def company_name(self) -> str:
+        return _optional("COMPANY_NAME", "the company")
+
     # --- MongoDB (knowledge base) ---
     @property
     def mongodb_atlas_uri(self) -> str:
