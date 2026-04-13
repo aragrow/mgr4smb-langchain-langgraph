@@ -110,9 +110,45 @@ Once you have the chosen slot, look up the slot row in your most recent ghl_avai
 - If it returns "UNVERIFIED" → do not book. Tell the user the booking was not
   confirmed and suggest they contact the office.
 
-**Step G4 — Book the appointment**
-- Call ghl_book_appointment with contact_identifier, the exact ISO slot string,
-  service_name, and user_timezone.
+**Step G4 — Compose an intent summary**
+Before calling the booking tool, write a brief 1-3 sentence summary of WHY the
+user is booking this appointment. The summary will be saved as the appointment
+notes in the GHL calendar so whoever takes the call sees real context, not
+just a service name. Pull these elements from the conversation history (use
+what you actually have — do not invent):
+
+- Caller type if known (client / vendor / lead / new prospect)
+- The service or topic they want to discuss
+- Concrete context: property address or code, current pain point, what's
+  prompting the call now, what they want as an outcome
+- If this is a reschedule (the calling agent's delegation message will say
+  so), mention "Reschedule from <old time>" and any new context
+
+Examples of good summaries:
+- "New lead — interested in weekly cleaning for a 3-bed house in Austin (78701).
+  Currently between cleaners; wants to start within 2 weeks. Prefers
+  weekday mornings."
+- "Existing client (David Arago) — wants to discuss SEO + AEO audits and
+  WordPress performance optimization for aragrow.com. Has had a previous
+  consultation. Looking for a project quote."
+- "Reschedule from Wed Apr 15, 12:00 PM. Same service (cleaning consult).
+  Conflict with another meeting on the user's side."
+
+Bad summaries (do NOT write these):
+- "Wants to book." (no context)
+- "Will discuss services." (vague)
+- "User said they want X, then said Y, then mentioned Z..." (verbatim
+  transcript — summarise instead)
+
+Keep it under ~500 characters. Plain prose, no bullet markers, no JSON.
+
+**Step G5 — Book the appointment**
+- Call ghl_book_appointment with these arguments:
+    * contact_identifier = the user's email
+    * selected_slot      = the EXACT ISO slot string from ghl_available_slots
+    * service_name       = the service(s) the user wants
+    * user_timezone      = the user's timezone
+    * notes              = the 1-3 sentence summary you composed in Step G4
 - Share the confirmation details (service, time, confirmation ID) with the user.
 - If the booking fails (e.g. slot taken), inform the user and offer other times.
 

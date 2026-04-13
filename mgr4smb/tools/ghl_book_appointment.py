@@ -21,12 +21,19 @@ def _format_time(iso_str: str, user_tz_name: str) -> str:
         return iso_str
 
 
+# GHL appointment notes have a practical limit. Anything longer is fine
+# in our system but bloats the calendar UI; truncate to keep the
+# scanning-the-day-view experience usable.
+_MAX_NOTES_LEN = 500
+
+
 @tool
 def ghl_book_appointment(
     contact_identifier: str,
     selected_slot: str,
     service_name: str,
     user_timezone: str = "",
+    notes: str = "",
 ) -> str:
     """Book a confirmed appointment in GoHighLevel.
 
@@ -35,10 +42,15 @@ def ghl_book_appointment(
         selected_slot: ISO 8601 slot time from Available Slots (e.g. 2026-04-03T10:00:00-04:00).
         service_name: Appointment title / service name.
         user_timezone: User's timezone for the confirmation message. Defaults to org timezone.
+        notes: Optional 1-3 sentence summary of the user's intent — what they want to
+            discuss / accomplish in this appointment, who they are, and any context
+            the team should see in the calendar (property, current pain point, etc).
+            Truncated to 500 characters. Stored in the appointment's notes field.
     """
     identifier = (contact_identifier or "").strip()
     slot = (selected_slot or "").strip()
     service = (service_name or "").strip()
+    notes_clean = (notes or "").strip()[:_MAX_NOTES_LEN]
 
     if not identifier:
         return "Error: A phone number or email address is required."
@@ -81,6 +93,32 @@ def ghl_book_appointment(
         resp = client.post("/calendars/events/appointments", json=appointment_body)
         resp.raise_for_status()
         result = resp.json()
+
+        # GHL's POST endpoint does NOT accept any notes/description field — it
+        # rejects "description" with 400 and silently ignores "notes" /
+        # "appointmentNotes". The follow-up PUT with `description` IS accepted
+        # and persists; the GET response mirrors it as both `description` and
+        # `notes`. Verified empirically against the live API.
+        event_id_for_notes = result.get("id")
+        if notes_clean and event_id_for_notes:
+            try:
+                note_resp = client.put(
+                    f"/calendars/events/appointments/{event_id_for_notes}",
+                    json={"description": notes_clean},
+                )
+                note_resp.raise_for_status()
+                logger.debug(
+                    "Appointment description set",
+                    extra={"event_id": event_id_for_notes, "chars": len(notes_clean)},
+                )
+            except Exception:
+                # Booking already succeeded; failing to attach the description
+                # shouldn't fail the whole booking. Log and continue.
+                logger.warning(
+                    "Failed to attach description to appointment",
+                    extra={"event_id": event_id_for_notes},
+                    exc_info=True,
+                )
 
     except GHLAPIError:
         raise

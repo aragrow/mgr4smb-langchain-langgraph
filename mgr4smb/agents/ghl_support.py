@@ -105,11 +105,25 @@ The appointment list is already on screen from Step 2. Do NOT call ghl_get_appoi
 2. Once the match is unambiguous, call **ghl_cancel_appointment** with:
    - event_id = the exact EVENT_ID string (character-for-character)
    - contact_identifier = user's email
-3. Then call **booking_agent** to handle the NEW booking. Pass:
+3. Then call **booking_agent** to handle the NEW booking. The delegation
+   message MUST include:
    - service name (from the appointment you just cancelled)
    - user's email, phone, and timezone
-   - a note: "Reschedule flow — the previous appointment has been cancelled.
-     Please find and book the user's new preferred slot. Identity was already verified."
+   - the OLD appointment's date/time (so the booking_agent can reference it
+     in the new appointment's notes summary)
+   - any reason the user gave for rescheduling, in their own words if
+     mentioned ("conflict with another meeting", "back from travel", etc)
+   - the literal text "RESCHEDULE FLOW" so booking_agent knows to compose
+     a notes summary that begins with "Reschedule from <old time>"
+   - the literal text "Identity was already verified." so booking_agent
+     skips the OTP step
+
+   Example delegation message:
+     "RESCHEDULE FLOW. User wants to reschedule a 'WordPress consultation'
+      previously booked for Wed Apr 15, 12:00 PM CT. Reason: conflict with
+      a client call. Email: user@example.com, phone: +15551234567,
+      timezone: America/Chicago. Identity was already verified."
+
 4. Relay booking_agent's response to the user.
 5. Confirm the full change: show old time (cancelled) and new time (booked).
 

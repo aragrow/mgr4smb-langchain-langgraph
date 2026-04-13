@@ -1121,6 +1121,27 @@ Phases 3, 4, 5, and 6 can be done **in parallel** since they are independent.
 
 ---
 
+### Phase 10.5: GHL appointment notes carry an intent summary
+
+**Why:** Whoever opens the GHL calendar after an appointment is booked needs context — the title alone (e.g. "WordPress consultation") doesn't say what the user wants to talk about, who they are, or what's prompting the call. The booking_agent now composes a 1-3 sentence summary from the conversation history and stores it on the appointment so it shows up in the calendar UI.
+
+**Tool change (`mgr4smb/tools/ghl_book_appointment.py`):**
+- New optional `notes` parameter, truncated to 500 characters.
+- Two-step write to GHL: POST creates the appointment (the POST endpoint rejects `description` with 400 and silently drops `notes`/`appointmentNotes`), then a follow-up `PUT /calendars/events/appointments/{id}` with `{"description": notes_clean}` attaches the description. The GET response mirrors it as both `description` and `notes`. Verified empirically against the live API (probed `notes`, `appointmentNotes`, `description`; only `description` via PUT persisted).
+- If the PUT fails for any reason, the booking is NOT rolled back — the appointment exists, just without the description. We log a WARNING and let the caller see the successful confirmation.
+
+**BOOKING_AGENT prompt (`mgr4smb/agents/booking.py`) — new Step G4:**
+- Before calling `ghl_book_appointment`, the agent writes a brief summary covering caller type (client/vendor/lead/prospect), the service or topic, concrete context (property address, current pain point, what's prompting the call now, desired outcome), and — if this is a reschedule — a "Reschedule from <old time>" prefix plus any reason the user gave.
+- Examples (good vs bad) included in the prompt to anchor the model.
+- Renamed the original Step G4 ("Book the appointment") to Step G5 to make room for the new compose step.
+
+**GHL_SUPPORT_AGENT prompt (`mgr4smb/agents/ghl_support.py`) — reschedule delegation:**
+- The delegation message to `booking_agent` now MUST include: the OLD appointment's date/time, any reason the user gave for rescheduling, and the literal text `"RESCHEDULE FLOW"` so booking_agent prefixes the new notes summary correctly.
+
+**Resolution of the API-shape issue:** First live test had the booking succeed but the notes silently dropped (GHL accepted `notes` in the POST body with 201 but did not persist). The fix above (POST then PUT description) was verified end-to-end — a 191-character summary now appears on the calendar in both the `description` and `notes` fields after a single `ghl_book_appointment` call.
+
+---
+
 ### Phase 11: Case Management (planned — not yet implemented)
 
 **Goal:** Introduce a durable, backend-owned "case" record that represents a single customer matter (e.g. a reschedule, a new-job request, a problem report). The CASE_AGENT maintains the record across one or many chat sessions, and specialist agents log their actions as tasks on the case.
