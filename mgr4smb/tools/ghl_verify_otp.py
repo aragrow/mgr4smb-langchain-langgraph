@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 
 from langchain_core.tools import tool
 
-from mgr4smb.config import settings
 from mgr4smb.exceptions import GHLAPIError
 from mgr4smb.tools import ghl_client
 
@@ -19,14 +18,20 @@ OTP_EXPIRY_FIELD_KEY = "contact.otp_expires_at"
 
 
 def _clear_otp(client, contact_id: str) -> None:
-    """Clear OTP fields on the contact to prevent reuse."""
+    """Clear OTP fields on the contact to prevent reuse.
+
+    Uses field IDs (not keys) — the GHL contacts PUT silently ignores
+    the key form and leaves fields untouched.
+    """
     try:
+        code_field_id = ghl_client.resolve_custom_field_id(OTP_CODE_FIELD_KEY)
+        expiry_field_id = ghl_client.resolve_custom_field_id(OTP_EXPIRY_FIELD_KEY)
         client.put(
             f"/contacts/{contact_id}",
             json={
                 "customFields": [
-                    {"key": OTP_CODE_FIELD_KEY, "value": ""},
-                    {"key": OTP_EXPIRY_FIELD_KEY, "value": ""},
+                    {"id": code_field_id, "value": ""},
+                    {"id": expiry_field_id, "value": ""},
                 ],
             },
         )
@@ -53,6 +58,8 @@ def ghl_verify_otp(contact_identifier: str, otp_code: str) -> str:
         return "UNVERIFIED: A verification code is required."
 
     try:
+        # Resolve identifier → contact_id via search (search is fine here —
+        # we only need the id, not the custom-field values).
         contact = ghl_client.search_contact(identifier)
         if not contact:
             return "UNVERIFIED: Contact not found."
@@ -60,14 +67,25 @@ def ghl_verify_otp(contact_identifier: str, otp_code: str) -> str:
         contact_id = contact["id"]
         client = ghl_client.get_client()
 
-        # Read stored OTP from custom fields
+        # IMPORTANT: re-fetch via GET /contacts/{id} to get FRESH custom
+        # field values. GHL's /contacts/search index lags behind PUTs by
+        # several seconds, so it would still show the previous OTP code
+        # (or empty) even after ghl_send_otp wrote a new one a moment ago.
+        fresh = ghl_client.fetch_contact(contact_id)
+
+        # Read stored OTP from custom fields. GHL returns customFields with
+        # `id` populated and `key=None`, so we must match on field id.
+        # Resolve our human-readable keys to ids first, then look them up.
+        code_field_id = ghl_client.resolve_custom_field_id(OTP_CODE_FIELD_KEY)
+        expiry_field_id = ghl_client.resolve_custom_field_id(OTP_EXPIRY_FIELD_KEY)
+
         stored_code = ""
         stored_expiry = ""
-        for field in contact.get("customFields", []):
-            key = field.get("key", field.get("id", ""))
-            if key == OTP_CODE_FIELD_KEY:
+        for field in fresh.get("customFields", []):
+            fid = field.get("id", "")
+            if fid == code_field_id:
                 stored_code = (field.get("value", "") or "").strip()
-            elif key == OTP_EXPIRY_FIELD_KEY:
+            elif fid == expiry_field_id:
                 stored_expiry = (field.get("value", "") or "").strip()
 
         if not stored_code:

@@ -76,14 +76,20 @@ def ghl_send_otp(contact_email: str, contact_phone: str) -> str:
         otp_code = f"{secrets.randbelow(900000) + 100000}"
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=OTP_LIFETIME_MINUTES)).isoformat()
 
+        # Resolve the human-readable field keys → real GHL field ids.
+        # GHL silently ignores PUTs that use the key form, leaving the
+        # fields blank (which leaves the workflow email blank too).
+        code_field_id = ghl_client.resolve_custom_field_id(OTP_CODE_FIELD_KEY)
+        expiry_field_id = ghl_client.resolve_custom_field_id(OTP_EXPIRY_FIELD_KEY)
+
         # Store OTP on the contact (triggers GHL workflow to email the code)
         client = ghl_client.get_client()
         resp = client.put(
             f"/contacts/{contact_id}",
             json={
                 "customFields": [
-                    {"key": OTP_CODE_FIELD_KEY, "value": otp_code},
-                    {"key": OTP_EXPIRY_FIELD_KEY, "value": expires_at},
+                    {"id": code_field_id, "value": otp_code},
+                    {"id": expiry_field_id, "value": expires_at},
                 ],
             },
         )
