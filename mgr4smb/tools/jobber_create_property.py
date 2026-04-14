@@ -1,4 +1,18 @@
-"""Jobber Create Property — creates a service property for a client."""
+"""Jobber Create Property — creates a service property for a client.
+
+Schema notes (verified via live introspection — see Jobber developer docs):
+- propertyCreate takes TWO top-level args: clientId (EncodedId) and
+  input (PropertyCreateInput). clientId is NOT nested inside input.
+- PropertyCreateInput wraps a single `properties: PropertyAttributes`
+  field. PropertyAttributes exposes: address, contacts, contactsToAssign,
+  customFields, taxRateId, name. There is NO `notes` field on
+  PropertyAttributes.
+- AddressAttributes uses `street1` / `street2` (not `street`).
+- Jobber does not store structured data for house/apartment/office or
+  bedroom/bathroom counts. We fold that detail into the property's
+  `name` field so it's still visible in the Jobber UI (e.g.
+  "House · 3 BR / 2 BA"). Upgrading to custom fields is a future option.
+"""
 
 import logging
 
@@ -11,12 +25,13 @@ logger = logging.getLogger(__name__)
 
 
 _MUTATION_CREATE_PROPERTY = """
-mutation CreateProperty($input: PropertyCreateInput!) {
-  propertyCreate(input: $input) {
+mutation CreateProperty($clientId: EncodedId!, $input: PropertyCreateInput!) {
+  propertyCreate(clientId: $clientId, input: $input) {
     property {
       id
       address {
-        street
+        street1
+        street2
         city
         province
         postalCode
@@ -27,6 +42,28 @@ mutation CreateProperty($input: PropertyCreateInput!) {
   }
 }
 """
+
+
+def _property_name(property_type: str, bedrooms: int, bathrooms: int, offices: int) -> str:
+    """Fold property characteristics into a human-readable name string.
+
+    Jobber's core Property schema has no structured fields for type / rooms /
+    bathrooms / offices. We encode those here so they remain visible on the
+    property record in the Jobber UI.
+    """
+    parts: list[str] = []
+    if property_type.strip():
+        parts.append(property_type.strip().capitalize())
+    room_bits: list[str] = []
+    if bedrooms:
+        room_bits.append(f"{bedrooms} BR")
+    if bathrooms:
+        room_bits.append(f"{bathrooms} BA")
+    if offices:
+        room_bits.append(f"{offices} OFC")
+    if room_bits:
+        parts.append(" / ".join(room_bits))
+    return " · ".join(parts)
 
 
 @tool
@@ -46,15 +83,16 @@ def jobber_create_property(
 
     Args:
         client_id_jobber: Base64-encoded Jobber client ID.
-        street: Street address.
+        street: Street address (maps to Jobber's `street1`).
         city: City.
         province: State or province.
         postal_code: ZIP or postal code.
         country: Country.
-        property_type: "house", "apartment", or "office" (stored in notes).
-        bedrooms: Number of bedrooms (for house/apartment).
-        bathrooms: Number of bathrooms.
-        offices: Number of offices (for office type).
+        property_type: "house", "apartment", or "office". Encoded in the
+            property's name since Jobber has no structured field for it.
+        bedrooms: Number of bedrooms (for house/apartment). Encoded in name.
+        bathrooms: Number of bathrooms. Encoded in name.
+        offices: Number of offices (for office type). Encoded in name.
     """
     cid = (client_id_jobber or "").strip()
     st = (street or "").strip()
@@ -65,7 +103,8 @@ def jobber_create_property(
     if not st or not ct:
         return "Error: Street and city are required."
 
-    address: dict = {"street": st, "city": ct}
+    # AddressAttributes uses `street1` (and optional `street2`), NOT `street`.
+    address: dict = {"street1": st, "city": ct}
     if province.strip():
         address["province"] = province.strip()
     if postal_code.strip():
@@ -73,27 +112,19 @@ def jobber_create_property(
     if country.strip():
         address["country"] = country.strip()
 
-    input_obj = {
+    property_attrs: dict = {"address": address}
+    name = _property_name(property_type, bedrooms, bathrooms, offices)
+    if name:
+        property_attrs["name"] = name
+
+    # Top-level `clientId` arg; input wraps `properties: PropertyAttributes`.
+    variables = {
         "clientId": cid,
-        "address": address,
+        "input": {"properties": property_attrs},
     }
 
-    # Encode property characteristics in notes since Jobber's core property
-    # schema doesn't have structured fields for rooms/bathrooms/offices.
-    notes_parts = []
-    if property_type.strip():
-        notes_parts.append(f"Type: {property_type.strip()}")
-    if bedrooms:
-        notes_parts.append(f"Bedrooms: {bedrooms}")
-    if bathrooms:
-        notes_parts.append(f"Bathrooms: {bathrooms}")
-    if offices:
-        notes_parts.append(f"Offices: {offices}")
-    if notes_parts:
-        input_obj["notes"] = " | ".join(notes_parts)
-
     try:
-        data = jobber_client.execute(_MUTATION_CREATE_PROPERTY, {"input": input_obj})
+        data = jobber_client.execute(_MUTATION_CREATE_PROPERTY, variables)
     except JobberAPIError as e:
         logger.error(
             "jobber_create_property failed",
@@ -114,7 +145,13 @@ def jobber_create_property(
     prop_id = prop.get("id")
     addr = prop.get("address", {}) or {}
     addr_str = ", ".join(
-        v for v in (addr.get("street"), addr.get("city"), addr.get("province"), addr.get("postalCode"))
+        v for v in (
+            addr.get("street1"),
+            addr.get("street2"),
+            addr.get("city"),
+            addr.get("province"),
+            addr.get("postalCode"),
+        )
         if v
     )
     logger.info(
