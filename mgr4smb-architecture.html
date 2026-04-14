@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>mgr4smb — Architecture Map</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #161821;
+    --panel-2: #1d2030;
+    --border: #2a2f3f;
+    --text: #e6e8ef;
+    --muted: #8b92a5;
+    --accent: #5b8cff;
+    --accent-2: #7aa1ff;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --err: #ef4444;
+
+    /* node fills */
+    --public:     #1e3a5f;
+    --agent-root: #5a4a1a;
+    --agent:      #1f4d2f;
+    --infra:      #3d2758;
+    --tool:       #5a2040;
+    --external:   #6b2e4a;
+    --persist:    #303a4a;
+
+    /* connections */
+    --c-data:      #3b82f6;
+    --c-tool:      #10b981;
+    --c-delegate:  #a855f7;
+    --c-external:  #f97316;
+    --c-persist:   #6b7280;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+  .app { display: grid; grid-template-columns: 310px 1fr; grid-template-rows: 1fr auto; height: 100vh; }
+  .sidebar { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 14px 14px 20px; grid-row: 1 / span 2; }
+  .canvas-wrap { background: var(--bg); overflow: hidden; position: relative; }
+  .prompt-bar { background: var(--panel); border-top: 1px solid var(--border); padding: 10px 14px; display: flex; align-items: flex-start; gap: 10px; }
+
+  h1 { font-size: 15px; margin: 0 0 4px; color: var(--text); }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 16px 0 6px; }
+  p.lead { font-size: 11px; color: var(--muted); margin: 0 0 8px; line-height: 1.45; }
+
+  .btns { display: flex; flex-wrap: wrap; gap: 5px; }
+  .btn { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 5px 9px; font: inherit; font-size: 11px; cursor: pointer; transition: all 0.12s; }
+  .btn:hover { background: var(--border); }
+  .btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.danger { background: transparent; color: var(--err); border-color: transparent; padding: 2px 6px; font-size: 14px; line-height: 1; }
+  .btn.danger:hover { background: rgba(239,68,68,0.1); }
+
+  label.check { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 12px; cursor: pointer; }
+  label.check input { accent-color: var(--accent); }
+  .swatch { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; }
+
+  .comments { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .comment { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 7px 9px; font-size: 11px; display: flex; justify-content: space-between; gap: 6px; }
+  .comment .body { flex: 1; }
+  .comment .label { font-weight: 600; color: var(--accent-2); font-size: 11px; }
+  .comment .text { color: var(--text); margin-top: 2px; line-height: 1.35; }
+
+  #canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  #canvas.grabbing { cursor: grabbing; }
+
+  .legend { position: absolute; left: 14px; bottom: 14px; background: rgba(22,24,33,0.92); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; font-size: 10px; line-height: 1.7; color: var(--muted); backdrop-filter: blur(8px); }
+  .legend strong { color: var(--text); display: block; margin-bottom: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .legend .row { display: flex; align-items: center; gap: 7px; }
+  .legend .chip { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+
+  .zoom { position: absolute; right: 14px; top: 14px; background: rgba(22,24,33,0.92); border: 1px solid var(--border); border-radius: 6px; padding: 3px; display: flex; flex-direction: column; gap: 2px; backdrop-filter: blur(8px); }
+  .zoom button { background: transparent; color: var(--text); border: none; cursor: pointer; width: 28px; height: 28px; border-radius: 4px; font-size: 14px; }
+  .zoom button:hover { background: var(--border); }
+
+  /* Node + path styles */
+  .node rect { stroke: var(--border); stroke-width: 1.2; cursor: pointer; transition: stroke 0.12s, filter 0.12s; }
+  .node:hover rect { stroke: var(--accent); stroke-width: 2; }
+  .node text { pointer-events: none; fill: var(--text); }
+  .node .label { font-size: 11.5px; font-weight: 600; }
+  .node .sub { font-size: 9.5px; fill: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .node.has-comment rect { stroke: var(--warn); stroke-width: 2.3; }
+  .node.dimmed { opacity: 0.22; }
+  .node.highlighted rect { stroke: var(--accent); stroke-width: 2.3; filter: drop-shadow(0 0 6px rgba(91,140,255,0.55)); }
+  .conn { fill: none; stroke-width: 1.4; opacity: 0.85; transition: opacity 0.12s, stroke-width 0.12s; }
+  .conn.dimmed { opacity: 0.1; }
+  .conn.highlighted { opacity: 1; stroke-width: 2.4; }
+  .conn-label { font-size: 9px; fill: var(--muted); font-family: ui-monospace, Menlo, monospace; pointer-events: none; }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(3px); }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px 18px 14px; width: 440px; max-width: calc(100vw - 40px); }
+  .modal h3 { margin: 0 0 4px; font-size: 14px; }
+  .modal .path { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 11px; margin-bottom: 8px; }
+  .modal .desc { color: var(--text); font-size: 12px; line-height: 1.45; margin-bottom: 12px; }
+  .modal textarea { width: 100%; min-height: 70px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 7px 9px; font: inherit; font-size: 12px; resize: vertical; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 10px; }
+
+  /* Prompt output */
+  #prompt { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+  #copy-btn { background: var(--accent); color: #fff; border: none; border-radius: 5px; padding: 9px 16px; font: inherit; font-size: 12px; cursor: pointer; height: fit-content; align-self: flex-start; }
+  #copy-btn:hover { background: var(--accent-2); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- =========================================================== SIDEBAR -->
+  <aside class="sidebar">
+    <h1>mgr4smb — Architecture</h1>
+    <p class="lead">Multi-agent orchestrator on LangGraph + FastAPI + MongoDB + Gemini. Click any component to add feedback. Presets highlight one scenario at a time.</p>
+
+    <h2>View presets</h2>
+    <div class="btns" id="presets">
+      <button class="btn active" data-preset="full">Full system</button>
+      <button class="btn" data-preset="booking">New booking</button>
+      <button class="btn" data-preset="reschedule">Reschedule</button>
+      <button class="btn" data-preset="qa">Q&A lookup</button>
+      <button class="btn" data-preset="otp">OTP verify</button>
+      <button class="btn" data-preset="jobber">Jobber job</button>
+    </div>
+
+    <h2>Visible layers</h2>
+    <div id="layers"></div>
+
+    <h2>Connection types</h2>
+    <div id="conn-types">
+      <label class="check"><input type="checkbox" data-conn="data-flow" checked><span class="swatch" style="background:var(--c-data)"></span> Data flow (HTTP, run_turn)</label>
+      <label class="check"><input type="checkbox" data-conn="tool-call" checked><span class="swatch" style="background:var(--c-tool)"></span> Tool call (agent → tool)</label>
+      <label class="check"><input type="checkbox" data-conn="delegation" checked><span class="swatch" style="background:var(--c-delegate)"></span> Delegation (agent → agent)</label>
+      <label class="check"><input type="checkbox" data-conn="external" checked><span class="swatch" style="background:var(--c-external)"></span> External API</label>
+      <label class="check"><input type="checkbox" data-conn="persistence" checked><span class="swatch" style="background:var(--c-persist)"></span> Persistence</label>
+    </div>
+
+    <h2>Feedback <span id="cn-count" style="color:var(--muted);font-weight:400"></span></h2>
+    <div id="comments" class="comments"></div>
+    <p class="lead" id="no-comments">Click a component, add a comment, and it becomes part of the prompt below. Great for calling out refactors, questions, or design decisions you want to revisit.</p>
+  </aside>
+
+  <!-- =========================================================== CANVAS -->
+  <div class="canvas-wrap">
+    <svg id="canvas" viewBox="0 0 1400 900" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="ah-data"     markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--c-data)"/></marker>
+        <marker id="ah-tool"     markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--c-tool)"/></marker>
+        <marker id="ah-delegate" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--c-delegate)"/></marker>
+        <marker id="ah-external" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--c-external)"/></marker>
+        <marker id="ah-persist"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--c-persist)"/></marker>
+      </defs>
+      <g id="viewport">
+        <g id="conns"></g>
+        <g id="nodes"></g>
+      </g>
+    </svg>
+
+    <div class="legend">
+      <strong>Layers</strong>
+      <div class="row"><span class="chip" style="background:var(--public)"></span>Public</div>
+      <div class="row"><span class="chip" style="background:var(--agent-root)"></span>Orchestrator</div>
+      <div class="row"><span class="chip" style="background:var(--agent)"></span>Specialist agent</div>
+      <div class="row"><span class="chip" style="background:var(--infra)"></span>Infra / glue</div>
+      <div class="row"><span class="chip" style="background:var(--tool)"></span>Tool</div>
+      <div class="row"><span class="chip" style="background:var(--external)"></span>External service</div>
+      <div class="row"><span class="chip" style="background:var(--persist)"></span>Persistence</div>
+    </div>
+
+    <div class="zoom">
+      <button id="zoom-in"  title="Zoom in">+</button>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-reset" title="Reset">⌂</button>
+    </div>
+  </div>
+
+  <!-- =========================================================== PROMPT -->
+  <div class="prompt-bar">
+    <div id="prompt"></div>
+    <button id="copy-btn">Copy prompt</button>
+  </div>
+</div>
+
+<!-- =========================================================== MODAL -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h3 id="m-label"></h3>
+    <div class="path" id="m-path"></div>
+    <div class="desc" id="m-desc"></div>
+    <textarea id="m-text" placeholder="Your feedback, question, or TODO for this component..."></textarea>
+    <div class="actions">
+      <button class="btn" id="m-cancel">Cancel</button>
+      <button class="btn active" id="m-save">Save comment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================================================================== DATA
+
+const LAYERS = [
+  { id: 'public',   label: 'Public (Chat UI, API, Auth)',         color: 'var(--public)' },
+  { id: 'agent',    label: 'Agents (Orchestrator + specialists)', color: 'var(--agent)' },
+  { id: 'infra',    label: 'Infra (graph, state, LLM, helpers)',  color: 'var(--infra)' },
+  { id: 'tool',     label: 'Tools (GHL, Jobber, KB)',             color: 'var(--tool)' },
+  { id: 'external', label: 'External services',                    color: 'var(--external)' },
+  { id: 'persist',  label: 'Persistence (files, session state)',  color: 'var(--persist)' },
+];
+
+const NODES = [
+  // -- Public (y: 50)
+  { id: 'chat-ui',    label: 'Chat UI',         path: 'chat-ui/',                     x: 70,  y: 50,  w: 140, h: 52, layer: 'public',   desc: 'Vanilla HTML/CSS/JS chat window. Served same-origin at /chat-ui/. Stores JWT in localStorage, shows sender labels + timestamps, polls /health every 2h.' },
+  { id: 'fastapi',    label: 'FastAPI app',     path: 'mgr4smb/api.py',               x: 240, y: 50,  w: 160, h: 52, layer: 'public',   desc: 'Two endpoints: POST /chat (JWT-protected) and GET /health (public, cheap liveness check; ?deep=true invokes the LLM).' },
+  { id: 'auth',       label: 'JWT Auth',        path: 'mgr4smb/auth.py',              x: 430, y: 50,  w: 140, h: 52, layer: 'public',   desc: 'verify_token() decodes JWT, validates client_id against clients.json, enforces expiry and enabled flag. Typed exceptions map to 401.' },
+
+  // -- Orchestrator root (y: 160)
+  { id: 'orchestrator', label: 'ORCHESTRATOR',  path: 'agents/orchestrator.py',       x: 620, y: 160, w: 220, h: 66, layer: 'agent',    root: true, desc: 'Supervisor. Routes based on intent: identify → greet → case context (Phase 11) → route to specialist. Never answers specialist questions itself.' },
+
+  // -- Specialist agents (y: 290)
+  { id: 'greeting',      label: 'GREETING',        path: 'agents/greeting.py',        x: 30,   y: 290, w: 140, h: 56, layer: 'agent', desc: 'Single-line welcome. Looks up contact via ghl_contact_lookup and replies "Welcome back, {FirstName}!" or "Thanks for contacting us!".' },
+  { id: 'general-info',  label: 'GENERAL_INFO',    path: 'agents/general_info.py',    x: 190,  y: 290, w: 160, h: 56, layer: 'agent', desc: 'Company Q&A via MongoDB vector search. After 4+ Q&As with a clear intent, appends ONE soft "schedule an appointment?" offer per session.' },
+  { id: 'booking',       label: 'BOOKING',         path: 'agents/booking.py',         x: 370,  y: 290, w: 140, h: 56, layer: 'agent', desc: 'New bookings. Two paths: GHL appointments (slot → OTP → book with intent summary in notes) and Jobber jobs (intake → OTP → jobber_support delegation).' },
+  { id: 'otp',           label: 'OTP',             path: 'agents/otp.py',             x: 530,  y: 290, w: 110, h: 56, layer: 'agent', desc: 'Identity verification. ONE send per session (prompt-enforced), up to 2 verify attempts, then escalates with company contact info.' },
+  { id: 'ghl-support',   label: 'GHL_SUPPORT',     path: 'agents/ghl_support.py',     x: 660,  y: 290, w: 160, h: 56, layer: 'agent', desc: 'Existing GHL appointments (view/reschedule/cancel). Delegates to OTP before ANY access; delegates to booking for the rebook step of a reschedule.' },
+  { id: 'jobber-support',label: 'JOBBER_SUPPORT',  path: 'agents/jobber_support.py',  x: 840,  y: 290, w: 170, h: 56, layer: 'agent', desc: 'Jobber data — read (clients, properties, jobs, visits) + write (create client/property/job). Also gets booking-like 4+-lookups appointment offer.' },
+
+  // -- Infra layer (y: 400)
+  { id: 'graph',    label: 'Graph / run_turn',    path: 'graph.py',                    x: 250, y: 400, w: 170, h: 48, layer: 'infra', desc: 'build_graph() wires all 7 agents. run_turn() snapshots pre-turn message count, invokes, retries ONCE on empty LLM output, never surfaces stale content. Tags LangSmith traces.' },
+  { id: 'state',    label: 'AgentState',          path: 'state.py',                    x: 440, y: 400, w: 130, h: 48, layer: 'infra', desc: 'TypedDict shared across all agents: messages + client_id + session_id + contact_id + is_verified + case_id + caller_type + job_type.' },
+  { id: 'helpers',  label: 'agent_as_tool',       path: 'agents/_helpers.py',          x: 590, y: 400, w: 160, h: 48, layer: 'infra', desc: 'Wraps a compiled sub-agent as a StructuredTool. Uses InjectedState so the sub-agent sees the parent full history (strips trailing pending tool_calls).' },
+  { id: 'memory',   label: 'Checkpointer',        path: 'memory.py',                   x: 770, y: 400, w: 140, h: 48, layer: 'infra', desc: 'MongoDBSaver factory. Persists full graph state per session_id. One context per app process.' },
+  { id: 'llm',      label: 'LLM factory',         path: 'llm.py',                      x: 930, y: 400, w: 130, h: 48, layer: 'infra', desc: 'Singleton ChatGoogleGenerativeAI(gemini-2.5-flash, temperature=0.2) + GoogleGenerativeAIEmbeddings(768 dims).' },
+
+  // -- Tools (y: 510)
+  { id: 'ghl-client',  label: 'GHLClient',          path: 'tools/ghl_client.py',      x: 80,  y: 510, w: 160, h: 58, layer: 'tool', desc: 'Shared httpx.Client with auth headers + timeouts. Exports search_contact(), fetch_contact() (bypasses stale search index), resolve_custom_field_id().' },
+  { id: 'ghl-tools',   label: 'GHL tools (7)',      path: 'tools/ghl_*.py',           x: 260, y: 510, w: 180, h: 58, layer: 'tool', desc: 'contact_lookup, available_slots, book_appointment (POST + PUT for notes/description), get_appointments, cancel_appointment, send_otp, verify_otp.' },
+  { id: 'mongodb-kb',  label: 'Knowledge base',     path: 'tools/mongodb_knowledge_base.py', x: 460, y: 510, w: 180, h: 58, layer: 'tool', desc: 'MongoDBAtlasVectorSearch, 768-dim cosine, top-1 retrieval. Returns graceful "no info" string on empty match.' },
+  { id: 'jobber-client', label: 'JobberClient',     path: 'tools/jobber_client.py',   x: 660, y: 510, w: 160, h: 58, layer: 'tool', desc: 'Shared httpx.Client with OAuth2: reads .tokens.json, refreshes access_token on 401, rotates refresh_token on use, writes both back to disk.' },
+  { id: 'jobber-tools', label: 'Jobber tools (7)', path: 'tools/jobber_*.py',         x: 840, y: 510, w: 190, h: 58, layer: 'tool', desc: 'get_clients/properties/jobs/visits + create_client/property/job (with correct schema: PropertyAttributes.name, JobCreateAttributes.timeframe). send_message is a stub.' },
+
+  // -- External (y: 640)
+  { id: 'ghl-api',       label: 'GoHighLevel',      path: 'services.leadconnectorhq.com', x: 70,   y: 640, w: 200, h: 58, layer: 'external', desc: 'REST API v2. Contacts, calendars, appointments, custom fields. OTP writes use field UUIDs (keys silently fail); reads need GET /contacts/{id} (search is stale).' },
+  { id: 'mongodb-atlas', label: 'MongoDB Atlas',    path: 'knowledge_base + checkpoints',  x: 300,  y: 640, w: 200, h: 58, layer: 'external', desc: 'Two DBs: aragrow-llc.knowledge_base (vector search index) + mgr4smb-memory.checkpoints (MongoDBSaver).' },
+  { id: 'gemini',        label: 'Google Gemini',    path: '2.5 Flash + embedding-001',     x: 530,  y: 640, w: 200, h: 58, layer: 'external', desc: 'LLM for all agent reasoning (temp 0.2) + embeddings (768 dims) for knowledge-base queries.' },
+  { id: 'jobber-api',    label: 'Jobber GraphQL',   path: 'api.getjobber.com',             x: 760,  y: 640, w: 190, h: 58, layer: 'external', desc: 'GraphQL over OAuth2. Refresh tokens rotate on use. Query cost budget limits nested page sizes (visits query: 15×25 not 50×50).' },
+  { id: 'langsmith',     label: 'LangSmith',        path: 'smith.langchain.com',           x: 980,  y: 640, w: 180, h: 58, layer: 'external', desc: 'Automatic tracing via LANGCHAIN_* env vars. Every run_turn tagged with session:<uuid> and client:<uuid8> for filtering.' },
+
+  // -- Persistence (y: 760)
+  { id: 'env',         label: '.env',           path: 'project root',                     x: 50,  y: 760, w: 130, h: 46, layer: 'persist', desc: 'All secrets and config: JWT_SECRET, API keys, GHL_OTP_*_FIELD_KEY overrides, COMPANY_SUPPORT_EMAIL/PHONE for OTP escalation.' },
+  { id: 'clients-json', label: 'clients.json',   path: 'project root',                    x: 210, y: 760, w: 150, h: 46, layer: 'persist', desc: 'JWT client registry. UUID client_id + name + enabled flag + created_at. Mode 0600. Flock on writes to prevent races.' },
+  { id: 'tokens-json', label: '.tokens.json',   path: 'project root',                     x: 390, y: 760, w: 160, h: 46, layer: 'persist', desc: 'Jobber OAuth tokens. Bootstrapped via scripts/authorize_jobber.py + bootstrap_jobber_tokens.py. Auto-rotated by JobberClient.' },
+];
+
+const CONNS = [
+  // user flow into the system
+  { from: 'chat-ui',      to: 'fastapi',      type: 'data-flow',   label: 'POST /chat' },
+  { from: 'fastapi',      to: 'auth',         type: 'data-flow' },
+  { from: 'auth',         to: 'clients-json', type: 'persistence' },
+  { from: 'fastapi',      to: 'graph',        type: 'data-flow',   label: 'run_turn()' },
+  { from: 'graph',        to: 'orchestrator', type: 'data-flow' },
+
+  // orchestrator → specialists (delegations)
+  { from: 'orchestrator', to: 'greeting',       type: 'delegation' },
+  { from: 'orchestrator', to: 'general-info',   type: 'delegation' },
+  { from: 'orchestrator', to: 'booking',        type: 'delegation' },
+  { from: 'orchestrator', to: 'ghl-support',    type: 'delegation' },
+  { from: 'orchestrator', to: 'jobber-support', type: 'delegation' },
+
+  // cross-agent delegations
+  { from: 'booking',      to: 'otp',            type: 'delegation', label: 'verify' },
+  { from: 'booking',      to: 'jobber-support', type: 'delegation', label: 'new job' },
+  { from: 'ghl-support',  to: 'otp',            type: 'delegation', label: 'verify' },
+  { from: 'ghl-support',  to: 'booking',        type: 'delegation', label: 'rebook' },
+  { from: 'jobber-support', to: 'otp',          type: 'delegation', label: 'verify' },
+
+  // agent_as_tool helper (central)
+  { from: 'orchestrator', to: 'helpers',        type: 'data-flow' },
+
+  // tool calls
+  { from: 'greeting',       to: 'ghl-tools',    type: 'tool-call', label: 'contact_lookup' },
+  { from: 'general-info',   to: 'mongodb-kb',   type: 'tool-call' },
+  { from: 'booking',        to: 'ghl-tools',    type: 'tool-call', label: 'slots / book' },
+  { from: 'otp',            to: 'ghl-tools',    type: 'tool-call', label: 'send / verify' },
+  { from: 'ghl-support',    to: 'ghl-tools',    type: 'tool-call', label: 'get / cancel' },
+  { from: 'jobber-support', to: 'jobber-tools', type: 'tool-call' },
+
+  // infra
+  { from: 'graph',          to: 'memory',       type: 'data-flow' },
+  { from: 'graph',          to: 'state',        type: 'data-flow' },
+  { from: 'orchestrator',   to: 'llm',          type: 'tool-call', label: 'invoke' },
+
+  // tools → clients → external
+  { from: 'ghl-tools',      to: 'ghl-client',     type: 'data-flow' },
+  { from: 'jobber-tools',   to: 'jobber-client',  type: 'data-flow' },
+  { from: 'ghl-client',     to: 'ghl-api',        type: 'external' },
+  { from: 'jobber-client',  to: 'jobber-api',     type: 'external' },
+  { from: 'mongodb-kb',     to: 'mongodb-atlas',  type: 'external', label: 'vector search' },
+  { from: 'memory',         to: 'mongodb-atlas',  type: 'external', label: 'checkpoints' },
+  { from: 'llm',            to: 'gemini',         type: 'external' },
+  { from: 'graph',          to: 'langsmith',      type: 'external', label: 'tags' },
+
+  // persistence
+  { from: 'jobber-client',  to: 'tokens-json',    type: 'persistence', label: 'rotate' },
+  { from: 'graph',          to: 'env',            type: 'persistence' },
+];
+
+// Pathways to highlight per preset. Nodes + connection ids (from→to) that form a complete flow.
+const PRESETS = {
+  full: { desc: 'Showing the complete architecture.', path: null },
+  booking: {
+    desc: 'User asks to book a new GHL appointment. Orchestrator greets → delegates to booking → booking retrieves slots → delegates to OTP → verifies → writes appointment + notes.',
+    nodes: ['chat-ui','fastapi','auth','graph','orchestrator','greeting','booking','otp','ghl-tools','ghl-client','ghl-api','llm','gemini','memory','mongodb-atlas','state','helpers','clients-json'],
+  },
+  reschedule: {
+    desc: 'User wants to reschedule an existing appointment. ghl_support verifies identity, fetches appointments, cancels the chosen one, then delegates to booking to book the new slot.',
+    nodes: ['chat-ui','fastapi','auth','graph','orchestrator','ghl-support','otp','booking','ghl-tools','ghl-client','ghl-api','llm','gemini','memory','mongodb-atlas','state','helpers','clients-json'],
+  },
+  qa: {
+    desc: 'User asks a general company question. Orchestrator delegates to general_info, which runs a vector-similarity search against the MongoDB knowledge base.',
+    nodes: ['chat-ui','fastapi','auth','graph','orchestrator','greeting','general-info','mongodb-kb','mongodb-atlas','llm','gemini','memory','state','helpers','clients-json'],
+  },
+  otp: {
+    desc: 'Any sensitive-action agent delegates to OTP. Send once per session, 2 verify attempts max; on failure, escalate with company contact info from .env.',
+    nodes: ['booking','ghl-support','jobber-support','otp','ghl-tools','ghl-client','ghl-api','env','state','helpers','llm','gemini'],
+  },
+  jobber: {
+    desc: 'New Jobber service-job request. Booking gathers property intake details, delegates to jobber_support, which looks up or creates the client, then creates property + job via Jobber GraphQL.',
+    nodes: ['chat-ui','fastapi','auth','graph','orchestrator','booking','otp','jobber-support','jobber-tools','jobber-client','jobber-api','tokens-json','llm','gemini','state','helpers','clients-json','ghl-tools','ghl-client','ghl-api'],
+  },
+};
+
+// Map layer ids to colour vars
+const LAYER_FILL = { public:'var(--public)', agent:'var(--agent)', infra:'var(--infra)', tool:'var(--tool)', external:'var(--external)', persist:'var(--persist)' };
+
+const CONN_STYLE = {
+  'data-flow':   { color: 'var(--c-data)',     dash: '',       marker: 'ah-data' },
+  'tool-call':   { color: 'var(--c-tool)',     dash: '6 3',    marker: 'ah-tool' },
+  'delegation':  { color: 'var(--c-delegate)', dash: '8 4',    marker: 'ah-delegate' },
+  'external':    { color: 'var(--c-external)', dash: '',       marker: 'ah-external' },
+  'persistence': { color: 'var(--c-persist)',  dash: '2 4',    marker: 'ah-persist' },
+};
+
+// =================================================================== STATE
+
+const state = {
+  preset: 'full',
+  layers: { public:true, agent:true, infra:true, tool:true, external:true, persist:true },
+  conns:  { 'data-flow':true, 'tool-call':true, 'delegation':true, 'external':true, 'persistence':true },
+  comments: [],
+  activeNode: null,
+  zoom: 1,
+  pan: { x: 0, y: 0 },
+};
+
+// =================================================================== RENDER
+
+function layerFill(n) {
+  if (n.root) return 'var(--agent-root)';
+  return LAYER_FILL[n.layer] || 'var(--panel-2)';
+}
+
+function centreOf(n) { return { x: n.x + n.w/2, y: n.y + n.h/2 }; }
+
+function buildPath(a, b) {
+  // Simple bezier between node edges
+  const ac = centreOf(a), bc = centreOf(b);
+  const dx = bc.x - ac.x, dy = bc.y - ac.y;
+  const mx = ac.x + dx/2, my = ac.y + dy/2;
+  // Curve control point offset perpendicular to segment for visual separation
+  const ctrlOffset = Math.min(60, Math.abs(dy) * 0.25 + 20);
+  return `M ${ac.x} ${ac.y} Q ${mx} ${ac.y + (dy>0 ? ctrlOffset : -ctrlOffset)}, ${bc.x} ${bc.y}`;
+}
+
+// Determine highlight membership
+function isNodeHighlighted(id) {
+  if (state.preset === 'full') return true;
+  const p = PRESETS[state.preset];
+  return p && p.nodes && p.nodes.includes(id);
+}
+
+function isConnHighlighted(c) {
+  if (state.preset === 'full') return true;
+  const p = PRESETS[state.preset];
+  if (!p || !p.nodes) return true;
+  return p.nodes.includes(c.from) && p.nodes.includes(c.to);
+}
+
+function renderNodes() {
+  const g = document.getElementById('nodes');
+  g.innerHTML = '';
+  NODES.forEach(n => {
+    if (!state.layers[n.layer]) return;
+    const highlighted = isNodeHighlighted(n.id);
+    const hasComment = state.comments.some(c => c.target === n.id);
+    const cls = ['node'];
+    if (hasComment) cls.push('has-comment');
+    if (state.preset !== 'full') {
+      if (highlighted) cls.push('highlighted');
+      else cls.push('dimmed');
+    }
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    el.setAttribute('class', cls.join(' '));
+    el.setAttribute('transform', `translate(${n.x}, ${n.y})`);
+    el.innerHTML = `
+      <rect width="${n.w}" height="${n.h}" rx="6" ry="6" fill="${layerFill(n)}"></rect>
+      <text class="label" x="${n.w/2}" y="${n.h/2 - 3}" text-anchor="middle" dominant-baseline="middle">${n.label}</text>
+      <text class="sub"   x="${n.w/2}" y="${n.h/2 + 13}" text-anchor="middle" dominant-baseline="middle">${n.path}</text>
+    `;
+    el.addEventListener('click', () => openModal(n));
+    g.appendChild(el);
+  });
+}
+
+function renderConns() {
+  const g = document.getElementById('conns');
+  g.innerHTML = '';
+  CONNS.forEach(c => {
+    if (!state.conns[c.type]) return;
+    const a = NODES.find(n => n.id === c.from);
+    const b = NODES.find(n => n.id === c.to);
+    if (!a || !b) return;
+    if (!state.layers[a.layer] || !state.layers[b.layer]) return;
+
+    const highlighted = isConnHighlighted(c);
+    const cls = ['conn'];
+    if (state.preset !== 'full') {
+      if (highlighted) cls.push('highlighted');
+      else cls.push('dimmed');
+    }
+    const style = CONN_STYLE[c.type];
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', cls.join(' '));
+    path.setAttribute('d', buildPath(a, b));
+    path.setAttribute('stroke', style.color);
+    if (style.dash) path.setAttribute('stroke-dasharray', style.dash);
+    path.setAttribute('marker-end', `url(#${style.marker})`);
+    g.appendChild(path);
+
+    if (c.label) {
+      const ac = centreOf(a), bc = centreOf(b);
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('class', 'conn-label ' + (cls.includes('dimmed') ? 'dimmed' : ''));
+      text.setAttribute('x', (ac.x + bc.x)/2);
+      text.setAttribute('y', (ac.y + bc.y)/2 - 4);
+      text.setAttribute('text-anchor', 'middle');
+      text.textContent = c.label;
+      g.appendChild(text);
+    }
+  });
+}
+
+function renderLayers() {
+  const host = document.getElementById('layers');
+  host.innerHTML = '';
+  LAYERS.forEach(l => {
+    const lbl = document.createElement('label');
+    lbl.className = 'check';
+    lbl.innerHTML = `<input type="checkbox" data-layer="${l.id}" ${state.layers[l.id] ? 'checked' : ''}>
+                     <span class="swatch" style="background:${l.color};height:10px;width:10px;border-radius:2px"></span>
+                     ${l.label}`;
+    lbl.querySelector('input').addEventListener('change', e => { state.layers[l.id] = e.target.checked; updateAll(); });
+    host.appendChild(lbl);
+  });
+}
+
+function renderComments() {
+  const host = document.getElementById('comments');
+  const empty = document.getElementById('no-comments');
+  const count = document.getElementById('cn-count');
+  host.innerHTML = '';
+  count.textContent = state.comments.length ? `(${state.comments.length})` : '';
+  empty.style.display = state.comments.length ? 'none' : 'block';
+  state.comments.forEach(c => {
+    const el = document.createElement('div');
+    el.className = 'comment';
+    el.innerHTML = `
+      <div class="body">
+        <div class="label">${c.targetLabel} <span style="color:var(--muted);font-weight:400">· ${c.targetPath}</span></div>
+        <div class="text">${c.text.replace(/</g,'&lt;')}</div>
+      </div>
+      <button class="btn danger" title="Delete">×</button>
+    `;
+    el.querySelector('.btn.danger').addEventListener('click', () => {
+      state.comments = state.comments.filter(x => x.id !== c.id);
+      updateAll();
+    });
+    host.appendChild(el);
+  });
+}
+
+function renderPresets() {
+  document.querySelectorAll('#presets .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.preset === state.preset);
+  });
+}
+
+function updatePrompt() {
+  const parts = [];
+  parts.push('This is the mgr4smb architecture — a LangGraph multi-agent orchestrator behind a FastAPI /chat endpoint, backed by GoHighLevel + Jobber + MongoDB + Gemini.');
+
+  const preset = PRESETS[state.preset];
+  if (state.preset !== 'full' && preset?.desc) {
+    parts.push(`\nCurrent focus: ${state.preset.toUpperCase()} flow — ${preset.desc}`);
+  }
+
+  const hidden = LAYERS.filter(l => !state.layers[l.id]);
+  if (hidden.length) {
+    parts.push(`\nHidden layers: ${hidden.map(l => l.id).join(', ')}.`);
+  }
+
+  if (state.comments.length) {
+    parts.push('\nFeedback on specific components:\n');
+    state.comments.forEach(c => {
+      parts.push(`**${c.targetLabel}** (${c.targetPath}):\n${c.text}\n`);
+    });
+  } else {
+    parts.push('\n(Click a component to add feedback or a TODO for Claude. The prompt updates live.)');
+  }
+
+  document.getElementById('prompt').textContent = parts.join('\n');
+}
+
+function updateAll() {
+  renderPresets();
+  renderConns();
+  renderNodes();
+  renderComments();
+  updatePrompt();
+  applyTransform();
+}
+
+// =================================================================== MODAL
+
+function openModal(node) {
+  state.activeNode = node;
+  document.getElementById('m-label').textContent = node.label;
+  document.getElementById('m-path').textContent = node.path;
+  document.getElementById('m-desc').textContent = node.desc || '';
+  const existing = state.comments.find(c => c.target === node.id);
+  document.getElementById('m-text').value = existing ? existing.text : '';
+  document.getElementById('modal-bg').classList.add('open');
+  setTimeout(() => document.getElementById('m-text').focus(), 30);
+}
+
+function closeModal() {
+  state.activeNode = null;
+  document.getElementById('modal-bg').classList.remove('open');
+}
+
+function saveComment() {
+  const text = document.getElementById('m-text').value.trim();
+  const n = state.activeNode;
+  if (!n) return;
+  state.comments = state.comments.filter(c => c.target !== n.id);
+  if (text) {
+    state.comments.push({ id: Date.now(), target: n.id, targetLabel: n.label, targetPath: n.path, text });
+  }
+  closeModal();
+  updateAll();
+}
+
+// ============================================================ ZOOM + PAN
+
+function applyTransform() {
+  document.getElementById('viewport').setAttribute('transform',
+    `translate(${state.pan.x}, ${state.pan.y}) scale(${state.zoom})`);
+}
+
+function zoom(delta) {
+  state.zoom = Math.max(0.4, Math.min(2.5, state.zoom + delta));
+  applyTransform();
+}
+
+function resetZoom() { state.zoom = 1; state.pan = { x: 0, y: 0 }; applyTransform(); }
+
+// Drag-to-pan on canvas background
+(function enablePan() {
+  const svg = document.getElementById('canvas');
+  let dragging = false, last = null;
+  svg.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'rect' || e.target.closest('.node')) return;
+    dragging = true; last = { x: e.clientX, y: e.clientY }; svg.classList.add('grabbing');
+  });
+  window.addEventListener('mouseup', () => { dragging = false; svg.classList.remove('grabbing'); });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    state.pan.x += (e.clientX - last.x);
+    state.pan.y += (e.clientY - last.y);
+    last = { x: e.clientX, y: e.clientY };
+    applyTransform();
+  });
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoom(e.deltaY < 0 ? 0.08 : -0.08);
+  }, { passive: false });
+})();
+
+// =========================================================== EVENT WIRING
+
+document.querySelectorAll('#presets .btn').forEach(b => {
+  b.addEventListener('click', () => {
+    state.preset = b.dataset.preset;
+    updateAll();
+  });
+});
+
+document.querySelectorAll('#conn-types input').forEach(inp => {
+  inp.addEventListener('change', e => {
+    state.conns[e.target.dataset.conn] = e.target.checked;
+    updateAll();
+  });
+});
+
+document.getElementById('zoom-in').addEventListener('click', () => zoom(0.15));
+document.getElementById('zoom-out').addEventListener('click', () => zoom(-0.15));
+document.getElementById('zoom-reset').addEventListener('click', resetZoom);
+
+document.getElementById('m-cancel').addEventListener('click', closeModal);
+document.getElementById('m-save').addEventListener('click', saveComment);
+document.getElementById('modal-bg').addEventListener('click', e => { if (e.target.id === 'modal-bg') closeModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('modal-bg').classList.contains('open')) closeModal();
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.getElementById('modal-bg').classList.contains('open')) saveComment();
+});
+
+document.getElementById('copy-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('copy-btn');
+  const text = document.getElementById('prompt').textContent;
+  try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied!'; }
+  catch { btn.textContent = 'Copy failed'; }
+  setTimeout(() => { btn.textContent = 'Copy prompt'; }, 1400);
+});
+
+// =========================================================== BOOT
+
+renderLayers();
+updateAll();
+</script>
+
+</body>
+</html>
