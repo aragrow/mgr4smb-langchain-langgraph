@@ -36,6 +36,13 @@ query GetVisits($clientId: EncodedId!) {
                 province
               }
             }
+            assignedUsers {
+              nodes {
+                id
+                name { full }
+                email { raw }
+              }
+            }
           }
         }
       }
@@ -43,6 +50,24 @@ query GetVisits($clientId: EncodedId!) {
   }
 }
 """
+
+
+def _format_assignees(assigned_users: dict | None) -> str:
+    """Render the visit's assigned team members as 'Name <email>' CSV."""
+    if not assigned_users:
+        return ""
+    nodes = assigned_users.get("nodes") or []
+    bits = []
+    for u in nodes:
+        name = (u.get("name") or {}).get("full") or ""
+        email = (u.get("email") or {}).get("raw") or ""
+        if name and email:
+            bits.append(f"{name} <{email}>")
+        elif name:
+            bits.append(name)
+        elif email:
+            bits.append(email)
+    return ", ".join(bits)
 
 
 def _format_address(addr: dict | None) -> str:
@@ -92,8 +117,11 @@ def jobber_get_visits(client_id_jobber: str) -> str:
             start = v.get("startAt", "")
             end = v.get("endAt", "")
             prop = _format_address((v.get("property") or {}).get("address"))
+            assignees = _format_assignees(v.get("assignedUsers"))
+            assignees_str = f" | Assigned: {assignees}" if assignees else ""
             lines.append(
-                f"    - {v_title} | {status} | {start} → {end} | {prop} | ID: {v.get('id')}"
+                f"    - {v_title} | {status} | {start} → {end} | {prop}"
+                f"{assignees_str} | ID: {v.get('id')}"
             )
 
     logger.info(

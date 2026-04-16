@@ -18,9 +18,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from sandbox.agents import account as acct_mod
 from sandbox.agents import authenticator as auth_mod
+from sandbox.agents import client_notifier as client_notifier_mod
 from sandbox.agents import general_info as ginfo_mod
 from sandbox.agents import greeting as greet_mod
 from sandbox.agents import orchestrator as orch_mod
+from sandbox.agents import reschedule as resched_mod
+from sandbox.agents import vendor_notifier as vendor_notifier_mod
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +39,20 @@ def build_graph(checkpointer=None):
     ginfo_agent = ginfo_mod.build()
     greet_agent = greet_mod.build()
     acct_agent = acct_mod.build()
+    # Notifier agents are internal — built once, then wired into
+    # reschedule_agent as sub-tools.
+    vendor_notifier_agent = vendor_notifier_mod.build()
+    client_notifier_agent = client_notifier_mod.build()
+    resched_agent = resched_mod.build(
+        vendor_notifier_agent=vendor_notifier_agent,
+        client_notifier_agent=client_notifier_agent,
+    )
     orch_agent = orch_mod.build(
         greeter_agent=greet_agent,
         general_info_agent=ginfo_agent,
         authenticator_agent=auth_agent,
         account_agent=acct_agent,
+        reschedule_agent=resched_agent,
     )
 
     if checkpointer is None:

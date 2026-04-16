@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# passkey-otp-sandbox operations menu — mirrors mgr4smb/menu.sh but
-# tailored to the sandbox surface (no Jobber, single dev client,
-# MongoDB-backed passkeys, in-memory OTP).
+# otp-sandbox operations menu — mirrors mgr4smb/menu.sh but tailored
+# to the sandbox surface: OTP-only authentication via GHL, read-only
+# Jobber queries through the account_agent, reschedule flow via the
+# reschedule / vendor_notifier / client_notifier agents, and a
+# single dev client (no clients.json).
+#
+# The directory is still named passkey-otp-sandbox/ to preserve git
+# history; the passkey code paths were removed earlier.
 #
 # Usage: ./menu.sh
 

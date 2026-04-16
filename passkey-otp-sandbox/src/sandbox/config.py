@@ -147,6 +147,51 @@ class _Settings:
     def ghl_otp_lifetime_minutes(self) -> int:
         return int(_optional("GHL_OTP_LIFETIME_MINUTES", "15"))
 
+    # --- GHL custom fields used by the reschedule flow ---------------------
+    # The vendor_notifier_agent writes to these two fields on the caller's
+    # contact. A GHL workflow, triggered on change to
+    # `ghl_reschedule_requested_at_field_key`, picks up the payload and
+    # emails it to the vendor (same pattern as the OTP workflow).
+    @property
+    def ghl_reschedule_request_field_key(self) -> str:
+        return _optional("GHL_RESCHEDULE_REQUEST_FIELD_KEY", "contact.reschedule_request")
+
+    @property
+    def ghl_reschedule_requested_at_field_key(self) -> str:
+        return _optional("GHL_RESCHEDULE_REQUESTED_AT_FIELD_KEY", "contact.reschedule_requested_at")
+
+    # --- Vendor display name ------------------------------------------------
+    # The "vendor" in this project is the Jobber team member who performs
+    # the service; they're notified through the GHL workflow pipeline
+    # (same pattern as OTP). The actual recipient email is set inside the
+    # GHL workflow itself, not here. This property only surfaces a
+    # human-readable label ("the scheduling team") for user-facing copy.
+    @property
+    def vendor_name(self) -> str:
+        return _optional("VENDOR_NAME", "the scheduling team")
+
+    # --- GHL custom fields used by the client notification flow ----------
+    # Mirror of the reschedule pair, but aimed at the CLIENT (the caller)
+    # rather than the vendor. The client_notifier_agent writes the
+    # payload to `ghl_client_notification_field_key` on the caller's
+    # contact and bumps `ghl_client_notification_at_field_key` — a
+    # second GHL workflow, triggered on change to the timestamp field,
+    # emails the caller. Keeping it separate from the OTP + reschedule
+    # pairs means three independent workflows, one per outbound channel.
+    @property
+    def ghl_client_notification_field_key(self) -> str:
+        return _optional(
+            "GHL_CLIENT_NOTIFICATION_FIELD_KEY",
+            "contact.client_notification",
+        )
+
+    @property
+    def ghl_client_notification_at_field_key(self) -> str:
+        return _optional(
+            "GHL_CLIENT_NOTIFICATION_AT_FIELD_KEY",
+            "contact.client_notification_at",
+        )
+
     @property
     def ghl_configured(self) -> bool:
         """True when both API key and location id are set — used by smoke
@@ -162,6 +207,16 @@ class _Settings:
     # points at the parent project's `.tokens.json` so both processes use the
     # same refresh-token lifecycle (Jobber only allows one active refresh
     # token at a time per app, so having two files would rotate each other out).
+    @property
+    def jobber_address_id_field_key(self) -> str:
+        """Custom-field key on the Jobber Property entity that stores the
+        human-readable Address ID the caller knows. Used by the
+        reschedule flow to match the caller's input to their property.
+        The key is a dotted path understood by jobber_client's custom
+        field lookup (e.g. `property.address_id`).
+        """
+        return _optional("JOBBER_ADDRESS_ID_FIELD_KEY", "property.address_id")
+
     @property
     def jobber_client_id(self) -> str:
         return _require("JOBBER_CLIENT_ID")

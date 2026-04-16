@@ -28,6 +28,7 @@ def build(
     general_info_agent,
     authenticator_agent,
     account_agent,
+    reschedule_agent,
 ):
     """Return a compiled react agent for the sandbox orchestrator."""
     tools = [
@@ -69,6 +70,19 @@ def build(
                 "email + their question verbatim in the instruction. The "
                 "caller MUST already be VERIFIED this session before this "
                 "tool is called."
+            ),
+        ),
+        agent_as_tool(
+            reschedule_agent,
+            name="reschedule_agent",
+            description=(
+                "Help the caller move the time of an existing Jobber job "
+                "at one of their properties. Collects Address ID + City, "
+                "confirms the change, then dispatches a request email to "
+                "the scheduling team AND a confirmation email to the "
+                "caller via the GHL workflow pipeline. Pass the caller's "
+                "email + their request verbatim in the instruction. The "
+                "caller MUST already be VERIFIED this session."
             ),
         ),
     ]

@@ -164,13 +164,52 @@ def phase_3() -> list[Result]:
             r_known[:100],
         ))
 
-        # 5. Jobber integration (bundled into phase 3 — skips cleanly
+        # 5. Reschedule / client-notification custom fields resolve.
+        #    These only exist in GHL if the admin has created them
+        #    under Settings → Custom Fields, so we skip-without-fail
+        #    when any of them isn't present.
+        results.extend(_phase_3_reschedule_fields(settings))
+
+        # 6. Jobber integration (bundled into phase 3 — skips cleanly
         #    when Jobber isn't configured).
         results.extend(_phase_3_jobber(settings))
 
     except Exception as e:
         traceback.print_exc()
         results.append(("phase_3", False, f"{type(e).__name__}: {e}"))
+    return results
+
+
+def _phase_3_reschedule_fields(settings) -> list[Result]:
+    """Try to resolve every GHL custom-field key the reschedule /
+    client-notification flows write to. Missing fields report as a
+    warning, not a failure, so the smoke can still go green on a
+    freshly-cloned sandbox where the admin hasn't yet created them.
+    """
+    from sandbox.tools import ghl_client
+
+    checks = [
+        ("reschedule_request field", settings.ghl_reschedule_request_field_key),
+        ("reschedule_requested_at field", settings.ghl_reschedule_requested_at_field_key),
+        ("client_notification field", settings.ghl_client_notification_field_key),
+        ("client_notification_at field", settings.ghl_client_notification_at_field_key),
+    ]
+    results: list[Result] = []
+    for label, key in checks:
+        try:
+            fid = ghl_client.resolve_custom_field_id(key)
+            results.append((label, True, f"{key} → {fid[:8]}..."))
+        except Exception as e:
+            # 404 = field isn't created yet; report as "skipped" not
+            # "failed" so the overall phase can still pass.
+            msg = str(e)
+            if "404" in msg or "not found" in msg.lower():
+                results.append((
+                    label, True,
+                    f"SKIPPED — {key} not yet created in GHL",
+                ))
+            else:
+                results.append((label, False, f"{type(e).__name__}: {e}"))
     return results
 
 
@@ -220,6 +259,73 @@ def _phase_3_jobber(settings) -> list[Result]:
             "No clients found" in r,
             r[:80],
         ))
+
+        # 3. Known-client end-to-end for the three record tools. We reuse
+        #    davidarago99@gmail.com (known to exist in GHL from phase 3;
+        #    expected to exist in Jobber too for this sandbox). If they
+        #    aren't a Jobber client, each tool returns a legible "No
+        #    clients found" / "No Jobber client found" string — still a
+        #    valid, non-erroring path, so we just check we got a
+        #    non-empty answer that doesn't start with "Jobber API error".
+        from sandbox.tools.jobber_get_properties import jobber_get_properties
+        from sandbox.tools.jobber_get_jobs import jobber_get_jobs
+        from sandbox.tools.jobber_get_visits import jobber_get_visits
+
+        known = "davidarago99@gmail.com"
+        r_clients = jobber_get_clients.invoke({"search_value": known})
+        results.append((
+            f"jobber_get_clients finds {known}",
+            r_clients.startswith("Clients"),
+            r_clients.split("\n", 1)[0][:100],
+        ))
+
+        # Extract the first base64 Jobber client id from the output so we
+        # can hand it to the three detail tools. Pattern: "| ID: <id>".
+        import re
+        m = re.search(r"ID:\s*([A-Za-z0-9+/=]+)", r_clients)
+        if not m:
+            results.append((
+                "jobber detail tools",
+                True,
+                f"SKIPPED — {known} not in Jobber (no client id to probe).",
+            ))
+            return results
+        client_id_jobber = m.group(1)
+
+        for label, tool in [
+            ("jobber_get_properties", jobber_get_properties),
+            ("jobber_get_jobs", jobber_get_jobs),
+            ("jobber_get_visits", jobber_get_visits),
+        ]:
+            try:
+                out = tool.invoke({"client_id_jobber": client_id_jobber})
+                ok = isinstance(out, str) and out and not out.startswith("Jobber API error")
+                results.append((label, ok, out.split("\n", 1)[0][:100]))
+            except Exception as e:
+                results.append((label, False, f"{type(e).__name__}: {e}"))
+
+        # 4. Tool-level imports for the two outbound notification tools
+        #    (send_vendor_reschedule_request + send_client_notification).
+        #    We don't actually invoke them here — that would write to
+        #    GHL custom fields and fire workflows. Import + @tool
+        #    introspection is enough to catch refactor breakage.
+        try:
+            from sandbox.tools.send_vendor_reschedule_request import (
+                send_vendor_reschedule_request,
+            )
+            from sandbox.tools.send_client_notification import (
+                send_client_notification,
+            )
+            results.append((
+                "notifier tools import",
+                callable(send_vendor_reschedule_request.invoke)
+                and callable(send_client_notification.invoke),
+                "send_vendor_reschedule_request + send_client_notification",
+            ))
+        except Exception as e:
+            results.append((
+                "notifier tools import", False, f"{type(e).__name__}: {e}",
+            ))
     except Exception as e:
         traceback.print_exc()
         results.append(("phase_3 (Jobber)", False, f"{type(e).__name__}: {e}"))
@@ -236,24 +342,34 @@ def phase_4() -> list[Result]:
     try:
         from sandbox.agents import account as acct_mod
         from sandbox.agents import authenticator as auth_mod
+        from sandbox.agents import client_notifier as client_notifier_mod
         from sandbox.agents import general_info as ginfo_mod
         from sandbox.agents import greeting as greet_mod
         from sandbox.agents import orchestrator as orch_mod
+        from sandbox.agents import reschedule as resched_mod
+        from sandbox.agents import vendor_notifier as vendor_notifier_mod
         from sandbox.config import settings
 
         auth_agent = auth_mod.build()
         ginfo_agent = ginfo_mod.build()
         greet_agent = greet_mod.build()
         acct_agent = acct_mod.build()
+        vendor_notifier_agent = vendor_notifier_mod.build()
+        client_notifier_agent = client_notifier_mod.build()
+        resched_agent = resched_mod.build(
+            vendor_notifier_agent=vendor_notifier_agent,
+            client_notifier_agent=client_notifier_agent,
+        )
         orch_mod.build(
             greeter_agent=greet_agent,
             general_info_agent=ginfo_agent,
             authenticator_agent=auth_agent,
             account_agent=acct_agent,
+            reschedule_agent=resched_agent,
         )
         results.append(
             ("agents build", True,
-             "orchestrator + greeter + general_info + authenticator + account")
+             "orchestrator + greeter + general_info + authenticator + account + reschedule (+ vendor_notifier + client_notifier)")
         )
 
         from sandbox.graph import build_graph, run_turn
