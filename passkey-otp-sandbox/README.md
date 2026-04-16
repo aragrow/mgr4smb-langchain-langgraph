@@ -1,65 +1,79 @@
-# Passkey + OTP Sandbox
+# OTP Sandbox
 
-A self-contained prototype that validates the **passkey-as-supplement-to-OTP**
-design from the parent `mgr4smb` project. No GoHighLevel, no Jobber, no
-MongoDB — just the identity-verification slice, standalone.
+A self-contained prototype of the mgr4smb identity-verification flow
+using **email OTP** (via the production GoHighLevel tenant) as the only
+authentication factor. Users re-authenticate on every new session.
+
+Passkeys (WebAuthn/FIDO2) were prototyped here earlier and then removed
+in favour of the OTP-only flow; the directory is still named
+`passkey-otp-sandbox/` to preserve git history.
 
 **Stack:** LangChain + LangGraph + LangSmith · Google Gemini 2.5 Flash ·
-FastAPI · MongoDB Atlas · `webauthn` (FIDO2).
+FastAPI · GoHighLevel REST API · MongoDB Atlas (optional).
 
 ## What's in the box
 
-- **3 agents** — Orchestrator (email-gate + intent classifier),
-  General-Info (knowledge-base-backed company Q&A), Authenticator
-  (passkey-first, OTP fallback, 3-attempt lockout).
-- **5 tools** — `knowledge_base`, `passkey_status`,
-  `passkey_request_verification`, `send_otp`, `verify_otp`. The
-  `send_otp` tool prints the code to stderr instead of emailing it
-  (swap for real email later). The `knowledge_base` tool uses Gemini
-  embeddings on a local JSON file with pure-Python cosine similarity
-  (swap for MongoDB Atlas vector search later).
+- **4 agents** — Orchestrator (email gate + intent classifier), Greeter
+  (GHL contact lookup), General-Info (knowledge-base-backed company
+  Q&A), Authenticator (email + phone → OTP → 3-attempt lockout).
+- **5 tools** — `ghl_client`, `ghl_contact_lookup`, `knowledge_base`,
+  `send_otp`, `verify_otp`. `send_otp` / `verify_otp` hit the real GHL
+  tenant — the code is emailed by GHL's workflow, not stubbed.
+  `knowledge_base` uses Gemini embeddings; with `MONGODB_ATLAS_URI`
+  set it goes through `MongoDBAtlasVectorSearch`, otherwise it falls
+  back to a local JSON file + pure-Python cosine.
 - **Prompts live under `src/sandbox/prompts/`** — one file per agent,
   imported by the matching agent module.
-- **MongoDB Atlas** for passkey credential storage (required — one
-  collection, unique compound index on `user_email + credential_id`).
-- **Dual-mode storage** for the knowledge base + LangGraph checkpointer.
-  With `MONGODB_ATLAS_URI` blank → local JSON + in-memory checkpointer
-  (the passkey routes will error out since those always require Mongo).
-  With it set → MongoDB Atlas vector search + MongoDBSaver + passkey
-  collection, feature-parity with production. Env var names match the
-  production mgr4smb project so the two `.env` files are interchangeable.
-- **FastAPI** with `/chat`, `/health`, `/ui`, and the 6 passkey endpoints.
-- **Single-file HTML UI** (`index.html`) that handles passkey prompts in
-  the browser.
-- **In-memory OTP store** and **in-memory challenge cache** — the sandbox
-  is ephemeral; restart and pending verifications are lost.
+- **Optional MongoDB** for the knowledge base + LangGraph checkpointer.
+  With `MONGODB_ATLAS_URI` blank: local JSON + `InMemorySaver` (session
+  state is lost on server restart). With it set: vector search +
+  `MongoDBSaver` (sessions survive restarts).
+- **FastAPI** with `/chat`, `/health`, `/ui`.
+- **Single-file HTML UI** (`index.html`) — paste JWT in Settings, chat.
 
-## Quickstart (~3 minutes)
+## Quickstart
 
 ```bash
-# 1) one-time setup
 cd passkey-otp-sandbox
 uv venv .venv
 source .venv/bin/activate
 uv pip install -e .
 
-# 2) fill in .env (already populated with local defaults for everything
-#    except LANGCHAIN_API_KEY / GOOGLE_API_KEY / JWT_SECRET)
-cp .env.example .env   # only if .env doesn't exist yet
+cp .env.example .env
+# fill in GOOGLE_API_KEY, JWT_SECRET, GHL_API_KEY, GHL_LOCATION_ID at minimum
 
-# 3) sanity check — every phase should PASS
-python -m sandbox.checks.smoke
-
-# 4) start the server
+python -m sandbox.checks.smoke       # every phase should PASS
 ./run.sh start
-
-# 5) mint a dev JWT and open the chat UI
-python scripts/issue_dev_jwt.py
+python scripts/issue_dev_jwt.py      # copy the token that prints
 open http://localhost:8000/ui
 ```
 
-In the UI, click **Settings**, paste the JWT + your email, save. Then
-say "please verify me" in the chat.
+In the UI, click **Settings**, paste the JWT, save. Then chat normally —
+introduce yourself with your email, ask a general question, or ask
+something sensitive to trigger the OTP flow.
+
+## Manual test scenarios
+
+After `./run.sh start` and pasting a JWT in the chat UI:
+
+### General question (no auth)
+
+1. Say **"do you do wordpress development?"**.
+2. Agent asks for your email.
+3. Give it (`my email is you@example.com`).
+4. Agent greets you by name (if in GHL) and answers the question from
+   the knowledge base.
+
+### Sensitive action → OTP
+
+1. In the same session, say **"yes, please set an appointment"**.
+2. Authenticator asks for your phone number.
+3. Give it (`my phone is 5551234567`).
+4. GHL emails the 6-digit code to the address on your contact record.
+5. Paste the code into the chat.
+6. Agent replies with `VERIFIED`.
+
+A new session (New session button) drops identity and forces OTP again.
 
 ## Directory layout
 
@@ -67,127 +81,81 @@ say "please verify me" in the chat.
 passkey-otp-sandbox/
 ├── README.md, pyproject.toml, menu.sh, run.sh, .env.example, .env, .gitignore
 ├── index.html                # single-file chat UI (served at /ui)
-├── knowledge_base.json       # local corpus used by the knowledge_base tool
-├── .kb_embeddings.json       # cached embeddings for the corpus (gitignored)
+├── knowledge_base.json       # local corpus (fallback when MONGODB_ATLAS_URI blank)
+├── .kb_embeddings.json       # cached embeddings (gitignored)
 ├── logs/                     # rotating log files
 ├── scripts/
-│   └── issue_dev_jwt.py      # mint a sandbox JWT
+│   ├── issue_dev_jwt.py      # mint a dev JWT
+│   └── ingest_kb_to_mongo.py # seed Mongo collection from knowledge_base.json
 └── src/sandbox/
     ├── config.py, state.py, llm.py
     ├── auth.py, api.py       # FastAPI + JWT
     ├── graph.py              # LangGraph assembly + run_turn
+    ├── memory.py             # checkpointer factory (MongoDBSaver / InMemorySaver)
     ├── logging_config.py, exceptions.py
-    ├── agents/               # agent wiring — each imports its prompt
+    ├── agents/               # each imports its prompt from sandbox.prompts
     │   ├── _helpers.py       # agent_as_tool + InjectedState
-    │   ├── orchestrator.py   # email gate + intent classifier + delegator
-    │   ├── general_info.py   # answers company questions via knowledge_base
-    │   └── authenticator.py  # passkey-first, OTP-fallback, 3-strike lockout
-    ├── prompts/              # SYSTEM_PROMPT per agent, kept out of code
     │   ├── orchestrator.py
+    │   ├── greeting.py
+    │   ├── general_info.py
+    │   └── authenticator.py
+    ├── prompts/              # SYSTEM_PROMPT per agent
+    │   ├── orchestrator.py
+    │   ├── greeting.py
     │   ├── general_info.py
     │   └── authenticator.py
     ├── tools/
-    │   ├── knowledge_base.py           # JSON + embeddings + cosine
-    │   ├── otp_store.py, send_otp.py, verify_otp.py
-    │   ├── passkey_status.py, passkey_request_verification.py
-    ├── webauthn/
-    │   ├── storage.py        # MongoDB CRUD
-    │   ├── challenges.py     # in-mem challenge cache w/ TTL
-    │   └── verification.py   # wrapper over `webauthn` pypi lib
+    │   ├── ghl_client.py, ghl_contact_lookup.py
+    │   ├── knowledge_base.py
+    │   ├── send_otp.py, verify_otp.py
     └── checks/
-        └── smoke.py          # phase-gated sanity checks
+        └── smoke.py
 ```
 
-## Manual test scenarios
+## Smoke phases
 
-After `./run.sh start` and entering JWT + email in the UI:
-
-### Scenario 1 — Fresh user, OTP only
-
-1. Say **"please verify me, my email is you@example.com"**.
-2. The terminal prints `===== OTP for you@example.com: 123456 =====`.
-3. Paste the 6-digit code into the chat → reply starts with `VERIFIED`.
-4. The "Register a passkey" banner appears → click it → complete the
-   authenticator prompt (Touch ID / Windows Hello).
-
-### Scenario 2 — Returning user, passkey path
-
-1. Click **New session**.
-2. Say **"please verify me, my email is you@example.com"** (same email
-   as scenario 1).
-3. The chat reply starts with `PASSKEY_REQUESTED`.
-4. The "Use passkey" button appears → click → complete the authenticator
-   prompt.
-5. The next agent reply starts with `VERIFIED`. No OTP printed to terminal.
-
-### Scenario 3 — Passkey cancelled → OTP fallback
-
-1. Same as scenario 2, but **cancel** the authenticator dialog.
-2. The UI posts `"Passkey verification did not complete..."` to `/chat`.
-3. The OTP agent falls through to Step 1 → a fresh code is printed to
-   the terminal → continue with the normal OTP flow.
-
-## Smoke test phases
-
-`python -m sandbox.checks.smoke [--phase N]` runs each phase's gate:
+`python -m sandbox.checks.smoke [--phase N]` (also `./menu.sh` → 7 / 8):
 
 | Phase | Coverage |
 |-------|----------|
 | 1 | third-party imports |
-| 2 | settings, LLM round-trip, passkey store (Mongo) round-trip |
-| 3 | OTP tools (happy, wrong code, expired) |
-| 4 | webauthn wrappers, passkey tools |
-| 5 | agents build, OTP path, passkey path |
-| 6 | API — `/health`, JWT gating, unverified-register 403 |
-| 7 | all of the above |
+| 2 | settings + LLM round-trip |
+| 3 | GHL connect + custom fields resolve + known contact lookup *(skips if GHL not configured)* |
+| 4 | agents build + orchestrator routes general question through greeter → general_info |
+| 5 | API — `/health`, JWT gating via `TestClient` |
+| 6 | regression sweep — reruns 1–5 + 7 |
+| 7 | MongoDB ping + index presence + checkpointer persistence across graph rebuild + bad-URI error *(skips if Mongo not configured)* |
 
 ## `run.sh` subcommands
 
 ```bash
-./run.sh start      # uvicorn in background, logs to logs/server.log
-./run.sh stop       # pkill uvicorn bound to our app
-./run.sh restart    # stop + start
-./run.sh status     # pid + /health poll
-./run.sh smoke      # full phase suite
+./run.sh start     # uvicorn in background, logs to logs/server.log
+./run.sh stop
+./run.sh restart
+./run.sh status
+./run.sh smoke
 ```
 
-## Switching the knowledge base + checkpointer to MongoDB
+## Switching storage to MongoDB
 
-Set `MONGODB_ATLAS_URI` in `.env`. That alone flips both:
+Set `MONGODB_ATLAS_URI` in `.env`. Flips both:
 
 - `knowledge_base` tool → `MongoDBAtlasVectorSearch` (top-1 on the
   configured collection + vector index).
-- LangGraph checkpointer → `MongoDBSaver` (session state persists
-  across server restarts; separate DB via `MONGODB_MEMORY_DB` so
-  sandbox checkpoints don't mix with production KB content).
+- LangGraph checkpointer → `MongoDBSaver` (sessions survive restarts;
+  separate DB via `MONGODB_MEMORY_DB` so sandbox checkpoints don't mix
+  with production KB content).
 
-To seed the Mongo collection with the sandbox's `knowledge_base.json`:
+To seed the Mongo knowledge_base collection from the local JSON:
 
 ```bash
 python scripts/ingest_kb_to_mongo.py --dry   # preview
 python scripts/ingest_kb_to_mongo.py         # upsert
 ```
 
-or use `./menu.sh` → option 14. After ingest, create an Atlas Vector
-Search index named `MONGODB_INDEX_NAME` on field `embedding`, dims =
+or `./menu.sh` → option 10. After ingest, create an Atlas Vector Search
+index named `MONGODB_INDEX_NAME` on field `embedding`, dims =
 `EMBEDDING_DIMENSIONS`, similarity = cosine.
 
-To force the local JSON to re-embed (after editing it), delete the
-cache: `./menu.sh` → option 15, or `rm .kb_embeddings.json`.
-
-## Porting back to mgr4smb
-
-Once you're satisfied with the flow:
-
-1. Copy `sandbox/webauthn/` → `mgr4smb/webauthn/`.
-2. Copy `sandbox/tools/passkey_*.py` → `mgr4smb/tools/`.
-3. Passkey storage already uses MongoDB — the collection schema and
-   unique compound index (`user_email + credential_id`) are a drop-in.
-4. Drop the sandbox `send_otp` / `verify_otp` stubs — keep the
-   production `ghl_send_otp` / `ghl_verify_otp`.
-5. Add the Step 0 / 0b prompt block from
-   `sandbox/agents/authenticator.py` into `mgr4smb/agents/otp.py` (and
-   consider renaming mgr4smb/agents/otp.py → authenticator.py too).
-6. Wire the 6 passkey endpoints into `mgr4smb/api.py`.
-7. Apply the same `PASSKEY_REQUESTED`/register-banner logic to
-   `chat-ui/chat.js`.
+To force a rebuild of the local embeddings cache:
+`./menu.sh` → option 11, or `rm .kb_embeddings.json`.

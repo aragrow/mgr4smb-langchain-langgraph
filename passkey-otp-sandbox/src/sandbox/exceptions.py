@@ -24,13 +24,6 @@ class InvalidClientError(AuthError):
     """client_id not found or disabled."""
 
 
-# --- Passkey -----------------------------------------------------------------
-
-
-class PasskeyError(SandboxError):
-    """WebAuthn / passkey registration or verification failure."""
-
-
 # --- External APIs -----------------------------------------------------------
 
 
@@ -41,6 +34,15 @@ class GHLAPIError(SandboxError):
         self.status_code = status_code
         self.detail = detail
         super().__init__(f"GHL {status_code}: {detail}")
+
+
+class JobberAPIError(SandboxError):
+    """Jobber GraphQL/REST error. Carries HTTP status + short detail."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(f"Jobber {status_code}: {detail}")
 
 
 # --- Config ------------------------------------------------------------------

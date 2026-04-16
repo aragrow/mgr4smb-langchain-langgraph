@@ -80,6 +80,54 @@ def search_contact(email_or_phone: str) -> dict | None:
     return contacts[0] if contacts else None
 
 
+def create_contact(
+    email: str,
+    phone: str,
+    first_name: str = "",
+    last_name: str = "",
+) -> dict:
+    """POST /contacts/ — create a new contact in the configured location.
+
+    Intended for use inside the OTP flow when `search_contact` returns
+    nothing: we only persist a caller the moment they commit to a
+    sensitive action (authenticating), not on every anonymous chat.
+
+    Returns the newly-created contact dict (same shape as search result).
+    Raises GHLAPIError on failure. If the email already exists, GHL
+    returns 200 with the existing contact instead of a duplicate.
+    """
+    body: dict = {
+        "locationId": settings.ghl_location_id,
+        "email": email.strip().lower(),
+        "phone": phone.strip(),
+    }
+    if first_name.strip():
+        body["firstName"] = first_name.strip()
+    if last_name.strip():
+        body["lastName"] = last_name.strip()
+
+    try:
+        resp = get_client().post("/contacts/", json=body)
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "GHL create_contact failed",
+            extra={"status": e.response.status_code, "body": e.response.text[:200]},
+        )
+        raise GHLAPIError(e.response.status_code, e.response.text[:200]) from e
+    except httpx.ConnectError as e:
+        logger.error("GHL unreachable on create_contact", extra={"error": str(e)})
+        raise GHLAPIError(503, "Service unreachable") from e
+
+    data = resp.json()
+    contact = data.get("contact", data)
+    logger.info(
+        "GHL contact created",
+        extra={"contact_id": contact.get("id", ""), "email": body["email"]},
+    )
+    return contact
+
+
 def fetch_contact(contact_id: str) -> dict:
     """GET /contacts/{id} — returns the canonical, fresh contact record.
 

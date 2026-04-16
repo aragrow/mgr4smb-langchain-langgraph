@@ -11,3 +11,9 @@ __pycache__/
 *.egg-info/
 .server.pid
 .kb_embeddings.json
+# The sandbox shares the parent project's .tokens.json via config.py's
+# default path; it should never have its own copy. Belt-and-suspenders.
+.tokens.json
+# The sandbox auth uses a single DEV_CLIENT_ID from .env — clients.json
+# is an mgr4smb-only file and shouldn't appear here.
+clients.json

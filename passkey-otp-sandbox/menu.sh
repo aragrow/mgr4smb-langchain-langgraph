@@ -216,92 +216,6 @@ mint_jwt() {
 }
 
 # ---------------------------------------------------------------------------
-# Passkey management (MongoDB, per user_email)
-# ---------------------------------------------------------------------------
-list_passkeys() {
-    read -r -p "User email (blank = all users): " email
-    _require_venv; _require_env; _activate_venv
-    python - <<PYEOF
-from sandbox.config import settings
-from sandbox.webauthn import storage
-
-email = """$email""".strip().lower()
-storage.init_db()
-coll = storage._coll()
-query = {"user_email": email} if email else {}
-rows = list(coll.find(query, sort=[("user_email", 1), ("created_at", 1)]))
-
-if not rows:
-    print("  No passkeys registered.")
-    raise SystemExit(0)
-
-print()
-print(f"  ({settings.mongodb_passkey_db}.{settings.mongodb_passkey_collection})")
-print(f"  {'USER_EMAIL':<35} {'CREDENTIAL_ID (trunc)':<25} {'COUNTER':<7} CREATED")
-print(f"  {'-'*35} {'-'*25} {'-'*7} {'-'*25}")
-for r in rows:
-    cid = (r.get('credential_id') or '')[:22] + ('…' if len(r.get('credential_id') or '') > 22 else '')
-    created = (r.get('created_at') or '')[:19]
-    print(f"  {r.get('user_email',''):<35} {cid:<25} {str(r.get('sign_counter',0)):<7} {created}")
-print()
-PYEOF
-}
-
-delete_passkey() {
-    list_passkeys
-    read -r -p "User email: " email
-    [[ -z "$email" ]] && { _err "Email required"; return 1; }
-    read -r -p "Credential ID (full, base64url): " cid
-    [[ -z "$cid" ]] && { _err "Credential ID required"; return 1; }
-    _require_venv; _require_env; _activate_venv
-    python - <<PYEOF
-from sandbox.webauthn import storage
-email = """$email""".strip().lower()
-cid = """$cid""".strip()
-removed = storage.remove(email, cid)
-print(f"  Removed {removed} row(s).")
-PYEOF
-    _ok "Done"
-}
-
-reset_all_passkeys() {
-    read -r -p "Delete ALL registered passkeys? This cannot be undone. Type 'yes' to confirm: " confirm
-    [[ "$confirm" != "yes" ]] && { _warn "Cancelled"; return 0; }
-    _require_venv; _require_env; _activate_venv
-    python - <<'PYEOF'
-from sandbox.config import settings
-from sandbox.webauthn import storage
-storage.init_db()
-result = storage._coll().delete_many({})
-print(f"  Deleted {result.deleted_count} document(s) from "
-      f"{settings.mongodb_passkey_db}.{settings.mongodb_passkey_collection}.")
-PYEOF
-    _ok "Passkey collection wiped"
-}
-
-# ---------------------------------------------------------------------------
-# OTP inspection (in-memory — only populated while the server is running
-# in THIS process. Useful from the smoke tests, not for the live server
-# since that runs in a separate process.)
-# ---------------------------------------------------------------------------
-peek_otp() {
-    _require_venv; _require_env; _activate_venv
-    python - <<'PYEOF'
-from sandbox.tools import otp_store
-store = otp_store._store  # internal dict, intentional peek
-if not store:
-    print("  No pending OTP codes in this process.")
-    print("  (Note: live server OTP codes live in the server process —")
-    print("   check logs/server.log for the printed ===== OTP banner =====.)")
-else:
-    print()
-    for email, entry in store.items():
-        print(f"  {email:<35} code={entry['code']}  expires_at={entry['expires_at']:.0f}")
-    print()
-PYEOF
-}
-
-# ---------------------------------------------------------------------------
 # Knowledge base — local JSON ↔ MongoDB Atlas
 # ---------------------------------------------------------------------------
 ingest_kb_to_mongo() {
@@ -330,7 +244,7 @@ show_menu() {
     cat <<'EOF'
 
 ══════════════════════════════════════════════════════════════
-          passkey-otp-sandbox — Operations Menu
+              otp-sandbox — Operations Menu
 ══════════════════════════════════════════════════════════════
 
 ┌─ SERVER ─────────────────────────────────────────────────────
@@ -351,22 +265,12 @@ show_menu() {
 │    9) Mint dev JWT
 └──────────────────────────────────────────────────────────────
 
-┌─ PASSKEYS  (MongoDB) ────────────────────────────────────────
-│   10) List registered passkeys
-│   11) Delete a passkey
-│   12) Reset ALL passkeys (wipe table)
-└──────────────────────────────────────────────────────────────
-
-┌─ OTP  (in-memory — for debugging) ───────────────────────────
-│   13) Peek pending OTP codes
-└──────────────────────────────────────────────────────────────
-
 ┌─ KNOWLEDGE BASE  (local JSON → MongoDB Atlas) ───────────────
-│   14) Ingest knowledge_base.json into MongoDB  (requires MONGODB_ATLAS_URI)
-│   15) Rebuild local embeddings cache  (delete .kb_embeddings.json)
+│   10) Ingest knowledge_base.json into MongoDB  (requires MONGODB_ATLAS_URI)
+│   11) Rebuild local embeddings cache  (delete .kb_embeddings.json)
 └──────────────────────────────────────────────────────────────
 
-   16) Exit
+   12) Exit
 ══════════════════════════════════════════════════════════════
 EOF
 }
@@ -384,22 +288,18 @@ main() {
         show_menu
         read -r -p "  Choice: " choice
         case "$choice" in
-            1)  start_server      || true; _pause ;;
-            2)  stop_server       || true; _pause ;;
-            3)  restart_server    || true; _pause ;;
-            4)  status_server     || true; _pause ;;
-            5)  health_check      || true; _pause ;;
-            6)  tail_logs         || true ;;  # tail -f already waits for Ctrl-C
-            7)  smoke_all         || true; _pause ;;
-            8)  smoke_phase       || true; _pause ;;
-            9)  mint_jwt          || true; _pause ;;
-            10) list_passkeys     || true; _pause ;;
-            11) delete_passkey    || true; _pause ;;
-            12) reset_all_passkeys || true; _pause ;;
-            13) peek_otp             || true; _pause ;;
-            14) ingest_kb_to_mongo   || true; _pause ;;
-            15) rebuild_kb_cache     || true; _pause ;;
-            16) _info "Bye."; exit 0 ;;
+            1)  start_server        || true; _pause ;;
+            2)  stop_server         || true; _pause ;;
+            3)  restart_server      || true; _pause ;;
+            4)  status_server       || true; _pause ;;
+            5)  health_check        || true; _pause ;;
+            6)  tail_logs           || true ;;  # tail -f already waits for Ctrl-C
+            7)  smoke_all           || true; _pause ;;
+            8)  smoke_phase         || true; _pause ;;
+            9)  mint_jwt            || true; _pause ;;
+            10) ingest_kb_to_mongo  || true; _pause ;;
+            11) rebuild_kb_cache    || true; _pause ;;
+            12) _info "Bye."; exit 0 ;;
             *)  _warn "Invalid choice: $choice"; _pause ;;
         esac
     done

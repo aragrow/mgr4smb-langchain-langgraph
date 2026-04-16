@@ -118,36 +118,6 @@ class _Settings:
     def mongodb_checkpoint_collection(self) -> str:
         return _optional("MONGODB_MEMORY_COLLECTION", "checkpoints")
 
-    @property
-    def mongodb_passkey_db(self) -> str:
-        return _optional("MONGODB_PASSKEY_DB", "") or self.mongodb_db_name
-
-    @property
-    def mongodb_passkey_collection(self) -> str:
-        return _optional("MONGODB_PASSKEY_COLLECTION", "passkeys")
-
-    # --- Passkey / WebAuthn -------------------------------------------------
-    @property
-    def rp_id(self) -> str:
-        return _optional("PASSKEY_RP_ID", "localhost")
-
-    @property
-    def rp_name(self) -> str:
-        return _optional("PASSKEY_RP_NAME", "Passkey Sandbox")
-
-    @property
-    def rp_origin(self) -> str:
-        # Full origin URL for WebAuthn (must match `window.location.origin`).
-        return _optional("PASSKEY_RP_ORIGIN", "http://localhost:8000")
-
-    @property
-    def user_verification(self) -> str:
-        return _optional("PASSKEY_USER_VERIFICATION", "preferred")
-
-    @property
-    def challenge_ttl_seconds(self) -> int:
-        return int(_optional("PASSKEY_CHALLENGE_TTL_SECONDS", "60"))
-
     # --- OTP ----------------------------------------------------------------
     @property
     def otp_lifetime_minutes(self) -> int:
@@ -186,6 +156,41 @@ class _Settings:
             os.environ.get("GHL_API_KEY", "").strip()
             and os.environ.get("GHL_LOCATION_ID", "").strip()
         )
+
+    # --- Jobber (OAuth2 + GraphQL) -----------------------------------------
+    # The sandbox shares mgr4smb's OAuth tokens by default — JOBBER_TOKENS_FILE
+    # points at the parent project's `.tokens.json` so both processes use the
+    # same refresh-token lifecycle (Jobber only allows one active refresh
+    # token at a time per app, so having two files would rotate each other out).
+    @property
+    def jobber_client_id(self) -> str:
+        return _require("JOBBER_CLIENT_ID")
+
+    @property
+    def jobber_client_secret(self) -> str:
+        return _require("JOBBER_CLIENT_SECRET")
+
+    @property
+    def jobber_tokens_file(self) -> Path:
+        default = (_project_root.parent / ".tokens.json").resolve()
+        override = _optional("JOBBER_TOKENS_FILE", "")
+        if override:
+            return Path(override).expanduser().resolve()
+        return default
+
+    @property
+    def jobber_configured(self) -> bool:
+        """True when client id + secret are present AND the tokens file
+        exists. Used by smoke to skip Jobber phases cleanly when the
+        sandbox hasn't been bootstrapped against a Jobber app yet.
+        """
+        import os
+        if not (
+            os.environ.get("JOBBER_CLIENT_ID", "").strip()
+            and os.environ.get("JOBBER_CLIENT_SECRET", "").strip()
+        ):
+            return False
+        return self.jobber_tokens_file.exists()
 
     # --- Company contact (escalation text) ----------------------------------
     @property

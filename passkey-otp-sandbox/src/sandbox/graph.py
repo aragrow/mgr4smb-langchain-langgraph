@@ -16,6 +16,7 @@ import logging
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
+from sandbox.agents import account as acct_mod
 from sandbox.agents import authenticator as auth_mod
 from sandbox.agents import general_info as ginfo_mod
 from sandbox.agents import greeting as greet_mod
@@ -34,10 +35,12 @@ def build_graph(checkpointer=None):
     auth_agent = auth_mod.build()
     ginfo_agent = ginfo_mod.build()
     greet_agent = greet_mod.build()
+    acct_agent = acct_mod.build()
     orch_agent = orch_mod.build(
         greeter_agent=greet_agent,
         general_info_agent=ginfo_agent,
         authenticator_agent=auth_agent,
+        account_agent=acct_agent,
     )
 
     if checkpointer is None:

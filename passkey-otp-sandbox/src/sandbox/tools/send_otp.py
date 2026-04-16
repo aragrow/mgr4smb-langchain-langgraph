@@ -1,14 +1,21 @@
 """Send OTP — stores a 6-digit code on the GHL contact.
 
-Ported from mgr4smb/tools/ghl_send_otp.py. Keeps the public tool name
-`send_otp` so the authenticator prompt doesn't change.
-
-Security: verifies BOTH email and phone match the contact record before
-generating the code. If either doesn't match, the request is rejected
-with "OTP_FAILED" — no email is sent.
-
 Writing the code to the configured custom fields triggers the GHL
 workflow that actually emails the code to the user.
+
+Behavior for new vs. existing users:
+
+- Existing contact (lookup by email succeeds): verify that the phone
+  the user gave matches the record. Mismatch → `OTP_FAILED` and no
+  email goes out. This guards against impersonation of someone whose
+  email is known but whose phone the attacker doesn't have.
+- New contact (lookup misses): create the contact in GHL with the
+  email, phone, and optional first/last name the caller supplied, then
+  send the OTP to that freshly-created record. The GHL side will
+  reject or dedupe a collision on email, so repeats are safe.
+
+The sandbox writes to GHL only at the moment of a sensitive action
+(OTP send). Anonymous KB-browsing users never create a contact.
 """
 
 import logging
@@ -31,16 +38,28 @@ def _normalize_phone(phone: str) -> str:
 
 
 @tool
-def send_otp(contact_email: str, contact_phone: str) -> str:
+def send_otp(
+    contact_email: str,
+    contact_phone: str,
+    first_name: str = "",
+    last_name: str = "",
+) -> str:
     """Send a 6-digit verification code to the contact's email.
 
-    Verifies that both email and phone match the contact on file before
-    sending. Returns OTP_SENT on success, OTP_FAILED if the info doesn't
-    match.
+    For an existing contact, verifies that both email and phone match
+    before sending. For a new contact (no record found for the email),
+    creates the contact with the supplied email + phone + optional
+    first/last name, then sends the OTP to it.
+
+    Returns OTP_SENT on success, OTP_FAILED if an existing contact's
+    phone doesn't match the one on file (the only case where we refuse
+    to send).
 
     Args:
         contact_email: The user's email address.
         contact_phone: The user's phone number.
+        first_name: Optional — only used when creating a new contact.
+        last_name: Optional — only used when creating a new contact.
     """
     email = (contact_email or "").strip().lower()
     phone = (contact_phone or "").strip()
@@ -53,14 +72,33 @@ def send_otp(contact_email: str, contact_phone: str) -> str:
     try:
         contact = ghl_client.search_contact(email)
 
-        if not contact:
-            logger.warning("OTP rejected: no contact for email", extra={"tool": "send_otp"})
-            return "OTP_FAILED: The information provided does not match our records."
-
-        contact_phone_on_file = contact.get("phone", "")
-        if _normalize_phone(phone) != _normalize_phone(contact_phone_on_file):
-            logger.warning("OTP rejected: phone mismatch", extra={"tool": "send_otp"})
-            return "OTP_FAILED: The information provided does not match our records."
+        if contact is None:
+            # New user — this is the first time we're seeing this email
+            # AND the caller has just asked for something sensitive (we
+            # wouldn't be in send_otp otherwise). Create the contact now.
+            logger.info(
+                "Creating new GHL contact via send_otp",
+                extra={
+                    "tool": "send_otp",
+                    "email": email,
+                    "has_name": bool(first_name.strip() or last_name.strip()),
+                },
+            )
+            contact = ghl_client.create_contact(
+                email=email,
+                phone=phone,
+                first_name=first_name,
+                last_name=last_name,
+            )
+        else:
+            # Existing contact — phone MUST match the record, otherwise
+            # we'd be willing to email an OTP to a real user that an
+            # attacker is trying to impersonate with a wrong phone.
+            on_file = contact.get("phone", "")
+            if _normalize_phone(phone) != _normalize_phone(on_file):
+                logger.warning("OTP rejected: phone mismatch",
+                               extra={"tool": "send_otp"})
+                return "OTP_FAILED: The information provided does not match our records."
 
         contact_id = contact["id"]
 
