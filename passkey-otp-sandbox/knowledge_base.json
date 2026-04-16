@@ -1,0 +1,49 @@
+{
+  "_schema": "v1 — each entry is {topic, content}. Embeddings are built over `content` on first query and cached at .kb_embeddings.json. Delete the cache to force a rebuild after editing this file.",
+  "entries": [
+    {
+      "topic": "company identity",
+      "content": "Aragrow LLC is the small home-services company this assistant represents. We operate primarily in the greater Minneapolis / St. Paul metropolitan area, with selected service to surrounding suburbs. The name Aragrow blends the founder's family name with 'grow', reflecting our focus on helping clients' homes and businesses stay in healthy, growing shape."
+    },
+    {
+      "topic": "business hours",
+      "content": "Our office is staffed Monday through Friday, 9:00 AM to 5:00 PM Central Time. On-site field work is performed during the same hours unless otherwise arranged. We are closed on major US holidays (New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas)."
+    },
+    {
+      "topic": "services offered",
+      "content": "Aragrow LLC offers four main service lines: (1) residential cleaning — one-time, weekly, bi-weekly, or monthly; (2) deep cleaning — quarterly or one-off, including appliance interiors and baseboards; (3) move-in / move-out cleaning — coordinated with your real-estate or property-management timeline; and (4) light office / commercial cleaning for small businesses on weekly or bi-weekly cadences."
+    },
+    {
+      "topic": "pricing basics",
+      "content": "Residential recurring cleaning starts at $150 per visit for a 2-bedroom, 1-bathroom home; larger homes are quoted individually. Deep cleaning starts at $280 for the same baseline and scales with square footage and add-ons. Move-in / move-out is quoted per property after a short phone walk-through. Office cleaning is priced per square foot per visit; typical small offices land between $100 and $220 per visit."
+    },
+    {
+      "topic": "service area",
+      "content": "Our primary service area is the Twin Cities metro (Minneapolis, St. Paul, and inner-ring suburbs such as Edina, Bloomington, Roseville, Maplewood). We also take recurring clients in St. Louis Park, Plymouth, Minnetonka, Eden Prairie, and Apple Valley. For addresses outside this area, reach out — we will tell you honestly whether the travel time fits our schedule."
+    },
+    {
+      "topic": "scheduling and cancellations",
+      "content": "New appointments are typically booked 1 to 2 weeks out. Recurring visits are scheduled on a fixed weekday and time slot so our team becomes familiar with your property. Cancellations or reschedule requests made more than 24 hours before the visit are free; inside that window a 50% fee applies to cover the held slot, with exceptions for illness or emergencies."
+    },
+    {
+      "topic": "supplies and products",
+      "content": "We supply all standard cleaning products and equipment. By default we use fragrance-free, eco-certified products (Seventh Generation, Method, or similar) because many clients prefer low-VOC cleaners for homes with children and pets. If you have a preferred brand or an allergy concern, tell us in advance and we will adapt. We do not bring bleach onto a property unless specifically requested."
+    },
+    {
+      "topic": "payment and invoicing",
+      "content": "We accept credit card, ACH, and check. Residential clients are invoiced after each visit and typically pay within 3 business days. Office clients are invoiced monthly on the 1st with net-15 terms. We do not collect cash on site."
+    },
+    {
+      "topic": "insurance and bonding",
+      "content": "Aragrow LLC carries general liability insurance up to $1,000,000 per occurrence and is bonded. Our field staff are W-2 employees (not independent contractors) and undergo background checks before entering clients' homes. A certificate of insurance can be provided on request for property managers."
+    },
+    {
+      "topic": "satisfaction guarantee",
+      "content": "If you are not satisfied with a cleaning, contact us within 24 hours and we will return to re-clean the specific areas at no additional charge. This guarantee applies to every service we offer. We keep the review private — it never affects your standing as a client."
+    },
+    {
+      "topic": "how to get started",
+      "content": "To start service, book a short discovery call with our scheduling team via this chat. We will confirm your address, the type of service you want, and find a first-visit slot. You will receive a written quote after the first visit based on actual time on site."
+    }
+  ]
+}

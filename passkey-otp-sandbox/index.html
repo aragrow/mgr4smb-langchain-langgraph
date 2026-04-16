@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Passkey + OTP Sandbox</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #171a21;
+      --surface-2: #1f232c;
+      --border: #2a2f3a;
+      --text: #e6e8ef;
+      --muted: #8a92a3;
+      --accent: #5b8cff;
+      --accent-hover: #7aa1ff;
+      --user: #2a3d66;
+      --bot: #232732;
+      --ok: #2ecc71;
+      --warn: #f0ad4e;
+      --err: #e55353;
+      --radius: 10px;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px; line-height: 1.5;
+    }
+    body { display: flex; flex-direction: column; height: 100vh; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px; background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      background: var(--muted); transition: background 0.2s; }
+    .dot.ok  { background: var(--ok); }
+    .dot.warn{ background: var(--warn); }
+    .dot.err { background: var(--err); }
+    .muted { color: var(--muted); font-size: 13px; }
+    code { font-family: var(--mono); background: var(--surface-2); padding: 1px 6px;
+      border-radius: 4px; font-size: 12px; }
+    .btn-primary, .btn-secondary, .btn-link {
+      border: none; border-radius: var(--radius); font: inherit; cursor: pointer;
+      padding: 8px 14px; transition: background 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-primary:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+    .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-link { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 13px; }
+    .btn-link:hover { color: var(--accent-hover); text-decoration: underline; }
+    .settings { padding: 16px 18px; background: var(--surface);
+      border-bottom: 1px solid var(--border); display: grid; gap: 12px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field.inline { flex-direction: row; align-items: center; gap: 8px; }
+    .field label { font-size: 13px; color: var(--muted); }
+    .field input[type="text"], .field input[type="password"] {
+      padding: 8px 10px; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      font-family: var(--mono); font-size: 13px;
+    }
+    .field input:focus { outline: none; border-color: var(--accent); }
+    .row { display: flex; gap: 8px; }
+    .session-bar { padding: 8px 18px; background: var(--surface);
+      border-bottom: 1px solid var(--border); display: flex; align-items: center;
+      gap: 10px; font-size: 13px; }
+    .chat { flex: 1; overflow-y: auto; padding: 20px 18px;
+      display: flex; flex-direction: column; gap: 14px; }
+    .msg-row { display: flex; flex-direction: column; max-width: 78%;
+      animation: slide-in 0.18s ease-out; }
+    .row-user   { align-self: flex-end;   align-items: flex-end; }
+    .row-bot    { align-self: flex-start; align-items: flex-start; }
+    .row-system { align-self: center;     align-items: center; max-width: 90%; }
+    .msg-label { font-size: 11px; color: var(--muted); margin-bottom: 4px;
+      display: flex; gap: 8px; align-items: baseline; padding: 0 4px; }
+    .msg-label .sender { font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }
+    .row-user .msg-label .sender { color: var(--accent); }
+    .row-bot  .msg-label .sender { color: #a9b3c4; }
+    .msg-label .timestamp { opacity: 0.6; font-variant-numeric: tabular-nums; }
+    .msg { padding: 10px 14px; border-radius: var(--radius);
+      white-space: pre-wrap; word-wrap: break-word; }
+    @keyframes slide-in { from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); } }
+    .msg-user { background: var(--user); border-bottom-right-radius: 2px; }
+    .msg-bot  { background: var(--bot); border-bottom-left-radius: 2px; border: 1px solid var(--border); }
+    .msg-system { background: transparent; color: var(--muted); font-style: italic;
+      border: 1px dashed var(--border); text-align: center; }
+    .msg-typing { background: var(--bot); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 16px; display: inline-flex; gap: 4px; }
+    .msg-typing span { width: 6px; height: 6px; background: var(--muted);
+      border-radius: 50%; animation: bounce 1.2s infinite; }
+    .msg-typing span:nth-child(2) { animation-delay: 0.15s; }
+    .msg-typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-4px); opacity: 1; } }
+    .banner { padding: 10px 18px; font-size: 13px; border-top: 1px solid var(--border); }
+    .banner-error { background: rgba(229, 83, 83, 0.12); color: var(--err); border-top-color: var(--err); }
+    .banner-info  { background: rgba(91, 140, 255, 0.12); color: var(--accent); border-top-color: var(--accent); }
+    .banner .inline-btn { margin-left: 10px; }
+    .composer { display: flex; gap: 8px; padding: 12px 18px;
+      background: var(--surface); border-top: 1px solid var(--border); }
+    .composer textarea { flex: 1; padding: 10px 12px; background: var(--bg);
+      color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+      font: inherit; resize: none; max-height: 160px; }
+    .composer textarea:focus { outline: none; border-color: var(--accent); }
+    .composer button { align-self: stretch; min-width: 80px; }
+    .passkey-row { display: flex; gap: 8px; padding: 10px 18px;
+      background: rgba(91,140,255,0.08); border-top: 1px solid var(--border);
+      align-items: center; }
+    .passkey-row .label { color: var(--muted); font-size: 13px; flex: 1; }
+    @media (max-width: 600px) {
+      .msg-row { max-width: 92%; } .topbar { padding: 10px 12px; }
+      .settings { padding: 12px; } .chat { padding: 14px 10px; }
+      .composer { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="health-dot" title="Server health"></span>
+      <strong>passkey-otp-sandbox</strong>
+      <span class="muted" id="health-text">checking…</span>
+    </div>
+    <button class="btn-link" id="settings-toggle">Settings</button>
+  </header>
+
+  <section class="settings" id="settings" hidden>
+    <div class="field">
+      <label for="api-base">API base URL</label>
+      <input id="api-base" type="text" placeholder="http://localhost:8000" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="jwt-token">JWT token</label>
+      <input id="jwt-token" type="password" placeholder="eyJhbGciOi..." autocomplete="off" spellcheck="false" />
+      <small class="muted">Mint one with <code>python scripts/issue_dev_jwt.py</code>.</small>
+    </div>
+    <div class="field inline">
+      <label for="remember">
+        <input id="remember" type="checkbox" checked />
+        Remember in this browser (localStorage)
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn-primary" id="save-settings">Save</button>
+      <button class="btn-secondary" id="clear-settings">Clear token</button>
+    </div>
+  </section>
+
+  <section class="session-bar">
+    <span class="muted">Session:</span>
+    <code id="session-id">none</code>
+    <button class="btn-link" id="new-session">New session</button>
+  </section>
+
+  <main class="chat" id="chat" aria-live="polite">
+    <div class="msg msg-system">
+      Welcome. Open <strong>Settings</strong> and paste your JWT, then introduce yourself with your email and say "please verify me" below.
+    </div>
+  </main>
+
+  <div class="banner banner-error" id="error-banner" hidden></div>
+
+  <div class="passkey-row" id="passkey-row" hidden>
+    <span class="label" id="passkey-label">A passkey is registered for this email.</span>
+    <button class="btn-primary" id="passkey-btn">Use passkey</button>
+    <button class="btn-secondary" id="passkey-cancel">Use email code instead</button>
+  </div>
+
+  <div class="banner banner-info" id="register-banner" hidden>
+    <span id="register-banner-label">No passkey on file for this email yet.</span>
+    <button class="btn-primary inline-btn" id="register-btn">Register a passkey</button>
+  </div>
+
+  <form class="composer" id="composer" autocomplete="off">
+    <textarea
+      id="input"
+      placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+      rows="2"
+      required
+      maxlength="4000"
+    ></textarea>
+    <button type="submit" class="btn-primary" id="send-btn">Send</button>
+  </form>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (sel) => document.querySelector(sel);
+  const dom = {
+    healthDot: $("#health-dot"),     healthText: $("#health-text"),
+    settingsBtn: $("#settings-toggle"), settings: $("#settings"),
+    apiBase: $("#api-base"),
+    token: $("#jwt-token"),          remember: $("#remember"),
+    saveBtn: $("#save-settings"),    clearBtn: $("#clear-settings"),
+    sessionId: $("#session-id"),     newSession: $("#new-session"),
+    chat: $("#chat"),                errorBanner: $("#error-banner"),
+    form: $("#composer"),            input: $("#input"),    sendBtn: $("#send-btn"),
+    passkeyRow: $("#passkey-row"),   passkeyBtn: $("#passkey-btn"),
+    passkeyCancel: $("#passkey-cancel"),
+    registerBanner: $("#register-banner"), registerBtn: $("#register-btn"),
+  };
+  const LS = { token: "pks.token", base: "pks.apiBase", remember: "pks.remember" };
+
+  // Default dev JWT baked in for this local sandbox so you don't have to
+  // paste it into Settings every session. Mint a fresh one anytime with:
+  //   python scripts/issue_dev_jwt.py
+  const DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGllbnRfaWQiOiJkZXYtbG9jYWwiLCJpYXQiOjE3NzYzMjUyOTYsImV4cCI6MTc3ODkxNzI5Nn0.eoQFj72zIJTXbLu9Dn0KSZ4lhUAfz0oBr_UEfqOBvZ8";
+
+  function defaultApiBase() {
+    if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+      return window.location.origin;
+    }
+    return "http://localhost:8000";
+  }
+
+  const state = {
+    apiBase: localStorage.getItem(LS.base) || defaultApiBase(),
+    token:   localStorage.getItem(LS.token) || DEFAULT_TOKEN,
+    // email is auto-captured from the user's chat messages — never
+    // surfaced as a UI field, never persisted.
+    email:   "",
+    remember: (localStorage.getItem(LS.remember) ?? "true") === "true",
+    sessionId: null,
+    sending: false,
+  };
+
+  // ---- UI helpers ----------------------------------------------------------
+  function renderSettings() {
+    dom.apiBase.value = state.apiBase;
+    dom.token.value = state.token;
+    dom.remember.checked = state.remember;
+  }
+  function renderSession() { dom.sessionId.textContent = state.sessionId || "none"; }
+  function showError(msg) {
+    if (!msg) { dom.errorBanner.hidden = true; dom.errorBanner.textContent = ""; return; }
+    dom.errorBanner.hidden = false; dom.errorBanner.textContent = msg;
+  }
+  function addMessage(role, text) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row " + (role === "user" ? "row-user" : role === "system" ? "row-system" : "row-bot");
+    if (role !== "system") {
+      const label = document.createElement("div");
+      label.className = "msg-label";
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+      label.innerHTML = `<span class="sender">${role==="user"?"You":"Agent"}</span><span class="timestamp">${hhmm}</span>`;
+      wrap.appendChild(label);
+    }
+    const bubble = document.createElement("div");
+    bubble.className = "msg " + (role === "user" ? "msg-user" : role === "system" ? "msg-system" : "msg-bot");
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    dom.chat.appendChild(wrap);
+    dom.chat.scrollTop = dom.chat.scrollHeight;
+  }
+  function addTypingIndicator() {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row row-bot"; wrap.id = "typing";
+    const label = document.createElement("div"); label.className = "msg-label";
+    label.innerHTML = `<span class="sender">Agent</span><span class="timestamp">…</span>`;
+    wrap.appendChild(label);
+    const dots = document.createElement("div"); dots.className = "msg-typing";
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    wrap.appendChild(dots);
+    dom.chat.appendChild(wrap); dom.chat.scrollTop = dom.chat.scrollHeight;
+  }
+  function removeTyping() { const t = $("#typing"); if (t) t.remove(); }
+  function persist() {
+    if (state.remember) {
+      localStorage.setItem(LS.token, state.token);
+      localStorage.setItem(LS.base, state.apiBase);
+      localStorage.setItem(LS.remember, "true");
+    } else {
+      localStorage.removeItem(LS.token);
+      localStorage.setItem(LS.remember, "false");
+    }
+  }
+
+  // ---- base64url helpers ---------------------------------------------------
+  function b64uToBuf(s) {
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    const bin = atob(s);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return buf.buffer;
+  }
+  function bufToB64u(buf) {
+    const bytes = new Uint8Array(buf);
+    let s = ""; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  // ---- API calls -----------------------------------------------------------
+  async function checkHealth() {
+    try {
+      const r = await fetch(state.apiBase + "/health");
+      const body = await r.json();
+      const ok = body.status === "ok";
+      dom.healthDot.className = "dot " + (ok ? "ok" : "warn");
+      const checks = body.checks || {};
+      const parts = Object.entries(checks).map(([k,v]) => `${k}:${v==="ok"?"ok":"err"}`);
+      dom.healthText.textContent = `${body.status}${parts.length?" · "+parts.join(" · "):""}`;
+    } catch (e) {
+      dom.healthDot.className = "dot err";
+      dom.healthText.textContent = "unreachable";
+    }
+  }
+
+  async function api(path, opts = {}) {
+    const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+    if (state.token) headers["Authorization"] = "Bearer " + state.token;
+    const r = await fetch(state.apiBase + path, { ...opts, headers });
+    if (!r.ok) {
+      let detail = "";
+      try { detail = " — " + JSON.stringify(await r.json()); } catch (_) {}
+      throw new Error(`HTTP ${r.status}${detail}`);
+    }
+    return r.status === 204 ? null : await r.json();
+  }
+
+  // Extract an email address from free-form text (first match).
+  function extractEmail(text) {
+    const m = (text || "").match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    return m ? m[0].toLowerCase() : "";
+  }
+
+  async function sendMessage(text) {
+    if (!state.token) { showError("Set a JWT token in Settings before sending."); return; }
+    showError("");
+    addMessage("user", text);
+
+    // Auto-capture email from the user's own messages so the register
+    // banner / passkey button have an identifier to work with even when
+    // Settings is left blank. The first email typed wins.
+    if (!state.email) {
+      const found = extractEmail(text);
+      if (found) state.email = found;
+    }
+
+    state.sending = true; dom.sendBtn.disabled = true;
+    addTypingIndicator();
+    const body = { message: text };
+    if (state.sessionId) body.session_id = state.sessionId;
+    try {
+      const data = await api("/chat", { method: "POST", body: JSON.stringify(body) });
+      removeTyping();
+      state.sessionId = data.session_id; renderSession();
+      const reply = data.response || "(no response)";
+      addMessage("bot", reply);
+      reactToReply(reply);
+    } catch (e) {
+      removeTyping();
+      showError(e.message);
+    } finally {
+      state.sending = false; dom.sendBtn.disabled = false; dom.input.focus();
+    }
+  }
+
+  // React to agent replies: show passkey button on PASSKEY_REQUESTED,
+  // show register banner on VERIFIED (if no passkey registered yet).
+  // Uses a word-boundary token match (not startsWith) so preambles like
+  // "Great news! VERIFIED — identity confirmed" still trigger the banner.
+  async function reactToReply(text) {
+    const hasPasskeyReq = /\bPASSKEY_REQUESTED\b/.test(text || "");
+    const hasVerified = /\bVERIFIED\b/.test(text || "") && !/\bUNVERIFIED\b/.test(text || "");
+
+    if (hasPasskeyReq) {
+      dom.passkeyRow.hidden = false;
+      dom.registerBanner.hidden = true;
+      return;
+    }
+    dom.passkeyRow.hidden = true;
+
+    if (hasVerified) {
+      if (!state.email) {
+        console.info("[sandbox] VERIFIED but no email known — skipping register banner");
+        return;
+      }
+      try {
+        const list = await api("/passkey/list?user_email=" + encodeURIComponent(state.email));
+        if (!list.credentials || list.credentials.length === 0) {
+          dom.registerBanner.hidden = false;
+        } else {
+          dom.registerBanner.hidden = true;
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+  }
+
+  // ---- Passkey: verify (authenticate) -------------------------------------
+  async function usePasskey() {
+    dom.passkeyBtn.disabled = true;
+    try {
+      if (!state.email) throw new Error("Send a message with your email first — the sandbox captures it automatically.");
+      const begin = await api("/passkey/verify/begin", {
+        method: "POST",
+        body: JSON.stringify({ session_id: state.sessionId || "", user_email: state.email }),
+      });
+      const opts = begin.options;
+      const publicKey = {
+        challenge: b64uToBuf(opts.challenge),
+        rpId: opts.rpId,
+        timeout: opts.timeout,
+        userVerification: opts.userVerification,
+        allowCredentials: (opts.allowCredentials || []).map(c => ({
+          type: c.type, id: b64uToBuf(c.id), transports: c.transports,
+        })),
+      };
+      const assertion = await navigator.credentials.get({ publicKey });
+      if (!assertion) throw new Error("no assertion");
+      const cred = {
+        id: assertion.id,
+        rawId: bufToB64u(assertion.rawId),
+        type: assertion.type,
+        response: {
+          clientDataJSON: bufToB64u(assertion.response.clientDataJSON),
+          authenticatorData: bufToB64u(assertion.response.authenticatorData),
+          signature: bufToB64u(assertion.response.signature),
+          userHandle: assertion.response.userHandle ? bufToB64u(assertion.response.userHandle) : null,
+        },
+      };
+      await api("/passkey/verify/finish", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: state.sessionId || "",
+          challenge_id: begin.challenge_id,
+          credential: cred,
+        }),
+      });
+      dom.passkeyRow.hidden = true;
+      await sendMessage("Passkey verified");
+    } catch (e) {
+      dom.passkeyRow.hidden = true;
+      showError("Passkey failed or cancelled — falling back to email.");
+      await sendMessage("Passkey verification did not complete. Please use email code instead.");
+    } finally {
+      dom.passkeyBtn.disabled = false;
+    }
+  }
+
+  // ---- Passkey: register ---------------------------------------------------
+  async function registerPasskey() {
+    dom.registerBtn.disabled = true;
+    try {
+      if (!state.email) throw new Error("Send a message with your email first — the sandbox captures it automatically.");
+      const begin = await api("/passkey/register/begin", {
+        method: "POST",
+        body: JSON.stringify({ session_id: state.sessionId || "", user_email: state.email }),
+      });
+      const opts = begin.options;
+      const publicKey = {
+        challenge: b64uToBuf(opts.challenge),
+        rp: opts.rp,
+        user: {
+          id: b64uToBuf(opts.user.id),
+          name: opts.user.name,
+          displayName: opts.user.displayName,
+        },
+        pubKeyCredParams: opts.pubKeyCredParams,
+        timeout: opts.timeout,
+        attestation: opts.attestation,
+        authenticatorSelection: opts.authenticatorSelection,
+        excludeCredentials: (opts.excludeCredentials || []).map(c => ({
+          type: c.type, id: b64uToBuf(c.id), transports: c.transports,
+        })),
+      };
+      const credential = await navigator.credentials.create({ publicKey });
+      if (!credential) throw new Error("no credential");
+      const cred = {
+        id: credential.id,
+        rawId: bufToB64u(credential.rawId),
+        type: credential.type,
+        response: {
+          clientDataJSON: bufToB64u(credential.response.clientDataJSON),
+          attestationObject: bufToB64u(credential.response.attestationObject),
+          transports: credential.response.getTransports ? credential.response.getTransports() : [],
+        },
+      };
+      await api("/passkey/register/finish", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: state.sessionId || "",
+          challenge_id: begin.challenge_id,
+          credential: cred,
+        }),
+      });
+      dom.registerBanner.hidden = true;
+      addMessage("system", "Passkey registered. Next session will use it automatically.");
+    } catch (e) {
+      showError("Passkey registration failed: " + e.message);
+    } finally {
+      dom.registerBtn.disabled = false;
+    }
+  }
+
+  // ---- Event wiring --------------------------------------------------------
+  dom.settingsBtn.addEventListener("click", () => { dom.settings.hidden = !dom.settings.hidden; });
+  dom.saveBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    state.apiBase = dom.apiBase.value.trim().replace(/\/+$/, "") || defaultApiBase();
+    state.token   = dom.token.value.trim();
+    state.remember = dom.remember.checked;
+    persist(); renderSettings(); dom.settings.hidden = true; checkHealth(); showError("");
+  });
+  dom.clearBtn.addEventListener("click", (e) => {
+    e.preventDefault(); state.token = ""; dom.token.value = ""; localStorage.removeItem(LS.token);
+  });
+  dom.newSession.addEventListener("click", () => {
+    state.sessionId = null; renderSession();
+    dom.chat.innerHTML = ""; dom.passkeyRow.hidden = true; dom.registerBanner.hidden = true;
+    addMessage("system", "New session started.");
+  });
+  dom.input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); dom.form.requestSubmit(); }
+  });
+  dom.form.addEventListener("submit", (e) => {
+    e.preventDefault(); if (state.sending) return;
+    const text = dom.input.value.trim(); if (!text) return;
+    dom.input.value = ""; sendMessage(text);
+  });
+  dom.passkeyBtn.addEventListener("click", usePasskey);
+  dom.passkeyCancel.addEventListener("click", () => {
+    dom.passkeyRow.hidden = true;
+    sendMessage("Passkey verification did not complete. Please use email code instead.");
+  });
+  dom.registerBtn.addEventListener("click", registerPasskey);
+
+  // ---- Init ----------------------------------------------------------------
+  renderSettings(); renderSession(); checkHealth();
+  if (!state.token) {
+    dom.settings.hidden = false;
+    addMessage("system", "No JWT token set — open Settings above and paste one minted via scripts/issue_dev_jwt.py.");
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+.env
+# .env.example currently contains real credentials in this project and
+# must never be committed. Clone-friendly template lives in README.md
+# instead.
+.env.example
+.venv/
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.server.pid
+.kb_embeddings.json

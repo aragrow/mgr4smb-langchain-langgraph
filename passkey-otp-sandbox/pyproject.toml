@@ -1,0 +1,35 @@
+[project]
+name = "passkey-otp-sandbox"
+version = "0.1.0"
+description = "Standalone passkey + OTP verification sandbox (LangGraph + FastAPI + WebAuthn)"
+requires-python = ">=3.11"
+dependencies = [
+    # Plan pinned >=1.2.22 but PyPI only ships up to 1.2.15 for langchain;
+    # the same applies to langchain-core. Pick the latest available while
+    # keeping the floor non-trivial so older 0.x releases are rejected.
+    "langchain>=1.2.15",
+    "langchain-core>=1.2.15",
+    "langchain-google-genai>=4.0.0",
+    "langgraph>=1.1.0",
+    "langsmith>=0.7.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pyjwt>=2.10.0",
+    "python-dotenv>=1.2.0",
+    "httpx>=0.28.0,<1.0",
+    "webauthn>=2.0.0",
+    # Optional MongoDB backends (knowledge base + checkpointer). Imported
+    # lazily — the sandbox runs fine without MONGODB_ATLAS_URI set; these
+    # deps only activate when it is.
+    "pymongo>=4.12.0",
+    "langchain-mongodb>=0.7.0",
+    "langgraph-checkpoint-mongodb>=0.2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sandbox*"]
