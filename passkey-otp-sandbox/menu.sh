@@ -221,28 +221,6 @@ mint_jwt() {
 }
 
 # ---------------------------------------------------------------------------
-# Knowledge base — local JSON ↔ MongoDB Atlas
-# ---------------------------------------------------------------------------
-ingest_kb_to_mongo() {
-    _require_venv; _require_env; _activate_venv
-    _info "Running scripts/ingest_kb_to_mongo.py"
-    _info "Requires MONGODB_ATLAS_URI in .env and an Atlas Vector Search"
-    _info "index on the target collection (see script output for details)."
-    echo
-    python scripts/ingest_kb_to_mongo.py
-}
-
-rebuild_kb_cache() {
-    if [[ -f "$SCRIPT_DIR/.kb_embeddings.json" ]]; then
-        rm -f "$SCRIPT_DIR/.kb_embeddings.json"
-        _ok "Removed .kb_embeddings.json — next query rebuilds the cache."
-    else
-        _warn "No .kb_embeddings.json to remove."
-    fi
-    _info "Reminder: restart the server so the in-process cache clears too."
-}
-
-# ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
 show_menu() {
@@ -270,12 +248,7 @@ show_menu() {
 │    9) Mint dev JWT
 └──────────────────────────────────────────────────────────────
 
-┌─ KNOWLEDGE BASE  (local JSON → MongoDB Atlas) ───────────────
-│   10) Ingest knowledge_base.json into MongoDB  (requires MONGODB_ATLAS_URI)
-│   11) Rebuild local embeddings cache  (delete .kb_embeddings.json)
-└──────────────────────────────────────────────────────────────
-
-   12) Exit
+   10) Exit
 ══════════════════════════════════════════════════════════════
 EOF
 }
@@ -302,9 +275,7 @@ main() {
             7)  smoke_all           || true; _pause ;;
             8)  smoke_phase         || true; _pause ;;
             9)  mint_jwt            || true; _pause ;;
-            10) ingest_kb_to_mongo  || true; _pause ;;
-            11) rebuild_kb_cache    || true; _pause ;;
-            12) _info "Bye."; exit 0 ;;
+            10) _info "Bye."; exit 0 ;;
             *)  _warn "Invalid choice: $choice"; _pause ;;
         esac
     done

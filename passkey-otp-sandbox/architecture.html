@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OTP Sandbox — Architecture Map</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #171a21;
+    --surface-2: #1f232c;
+    --border: #2a2f3a;
+    --text: #e6e8ef;
+    --muted: #8a92a3;
+    --accent: #5b8cff;
+    --accent-hover: #7aa1ff;
+    --ok: #2ecc71;
+    --warn: #f0ad4e;
+    --err: #e55353;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    /* layer palette — dark theme, richer than the template's light tones */
+    --c-browser: #2d4a8a;
+    --c-api:     #6b5830;
+    --c-state:   #5a3a6a;
+    --c-orch:    #3a6b5a;
+    --c-agent:   #2a4d3f;
+    --c-tool:    #3a3a5a;
+    --c-ext:     #7a3d56;
+
+    /* connection palette */
+    --f-data:      #5b8cff;
+    --f-tool:      #2ecc71;
+    --f-external:  #f97316;
+    --f-delegate:  #a78bfa;
+    --f-state:     #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  code, .mono { font-family: var(--mono); }
+
+  .app { display: grid; grid-template-columns: 320px 1fr; grid-template-rows: 1fr auto;
+    grid-template-areas: "side canvas" "side prompt"; height: 100vh; }
+  aside { grid-area: side; background: var(--surface); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 16px; }
+  main   { grid-area: canvas; position: relative; overflow: auto; background: var(--bg); }
+  footer { grid-area: prompt; background: var(--surface); border-top: 1px solid var(--border);
+    padding: 14px 16px; }
+
+  aside h1 { margin: 0 0 4px 0; font-size: 16px; letter-spacing: 0.3px; }
+  aside h2 { margin: 18px 0 8px; font-size: 11px; color: var(--muted); letter-spacing: 1px;
+    text-transform: uppercase; font-weight: 600; }
+  aside p.lede { margin: 0 0 14px 0; color: var(--muted); font-size: 12px; }
+  aside .group { display: flex; flex-direction: column; gap: 4px; }
+
+  .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; font: inherit; cursor: pointer; text-align: left; padding: 8px 10px;
+    transition: background 0.12s, border-color 0.12s; }
+  .btn:hover { background: var(--border); }
+  .btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn .hint { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
+  .btn.active .hint { color: #e7f0ff; }
+
+  label.check { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 5px;
+    cursor: pointer; font-size: 13px; }
+  label.check:hover { background: var(--surface-2); }
+  label.check .swatch { width: 14px; height: 3px; border-radius: 2px; }
+  label.check.layer .swatch { height: 14px; border-radius: 3px; border: 1px solid var(--border); }
+
+  .zoom-row { display: flex; gap: 6px; margin-top: 8px; }
+  .zoom-row .btn { flex: 1; text-align: center; padding: 6px; }
+
+  .comments-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .comment { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; }
+  .comment .head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .comment .head strong { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  .comment .head button { background: transparent; border: none; color: var(--muted); cursor: pointer;
+    font-size: 16px; line-height: 1; padding: 0 4px; }
+  .comment .head button:hover { color: var(--err); }
+  .comment .file { color: var(--muted); font-family: var(--mono); font-size: 10px; margin: 2px 0 4px; }
+  .comment .text { white-space: pre-wrap; }
+  .empty { color: var(--muted); font-size: 12px; font-style: italic; padding: 4px 6px; }
+
+  /* Canvas */
+  main .hint-top { position: sticky; top: 0; background: var(--bg);
+    padding: 8px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border);
+    z-index: 2; display: flex; justify-content: space-between; align-items: center; }
+  main .hint-top .title { color: var(--text); font-weight: 600; letter-spacing: 0.3px; }
+  svg { display: block; }
+  svg .node rect { stroke: var(--border); stroke-width: 1; transition: opacity 0.2s, stroke 0.15s; }
+  svg .node:hover rect { stroke: var(--accent); stroke-width: 2; }
+  svg .node text { fill: var(--text); pointer-events: none; font-size: 11px; }
+  svg .node text.label { font-family: var(--mono); font-weight: 600; font-size: 11px; }
+  svg .node text.sub   { fill: var(--muted); font-size: 10px; font-family: var(--mono); }
+  svg .node.commented rect { stroke: var(--warn); stroke-width: 2; }
+  svg .node.commented .pin { fill: var(--warn); }
+  svg .dimmed { opacity: 0.18; }
+  svg .edge { fill: none; stroke-width: 1.6; transition: opacity 0.2s; }
+  svg .edge.dimmed { opacity: 0.08; }
+  svg .edge-label { fill: var(--muted); font-size: 9px; font-family: var(--mono); pointer-events: none; }
+  svg .column-bg rect { fill: var(--surface); opacity: 0.35; stroke: var(--border); stroke-dasharray: 3,3; }
+  svg .column-bg text { fill: var(--muted); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; font-weight: 600; }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none;
+    align-items: center; justify-content: center; z-index: 100; }
+  .modal-bg.on { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; width: 480px; max-width: 92vw; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+  .modal h3 { margin: 0 0 2px; font-family: var(--mono); color: var(--accent); font-size: 14px; }
+  .modal .file { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-bottom: 12px; }
+  .modal .summary { color: var(--muted); font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
+  .modal textarea { width: 100%; min-height: 100px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 10px; font: inherit; resize: vertical; }
+  .modal textarea:focus { outline: none; border-color: var(--accent); }
+  .modal .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .modal .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .modal .btn.primary:hover { background: var(--accent-hover); }
+
+  /* Prompt */
+  footer .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  footer h2 { margin: 0; font-size: 11px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; font-weight: 600; }
+  footer pre { margin: 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; max-height: 140px; overflow-y: auto; font-family: var(--mono); font-size: 12px;
+    white-space: pre-wrap; color: var(--text); }
+  footer .copied { color: var(--ok); font-size: 12px; margin-left: 10px; opacity: 0; transition: opacity 0.2s; }
+  footer .copied.on { opacity: 1; }
+
+  /* Legend (bottom-left overlay on canvas) */
+  .legend { position: absolute; left: 12px; bottom: 12px; background: rgba(15,17,23,0.85);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 11px;
+    color: var(--muted); display: flex; flex-direction: column; gap: 4px; z-index: 1; }
+  .legend .row { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 18px; height: 2px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>OTP Sandbox</h1>
+    <p class="lede mono">architecture map · click any component to add feedback</p>
+
+    <h2>View presets</h2>
+    <div class="group" id="presets"></div>
+
+    <h2>Visible layers</h2>
+    <div class="group" id="layers"></div>
+
+    <h2>Connection types</h2>
+    <div class="group" id="edgetypes"></div>
+
+    <h2>Zoom</h2>
+    <div class="zoom-row">
+      <button class="btn" onclick="setZoom(-0.1)">−</button>
+      <button class="btn" onclick="setZoom(0, true)">reset</button>
+      <button class="btn" onclick="setZoom(+0.1)">+</button>
+    </div>
+
+    <h2>Comments (<span id="commentCount">0</span>)</h2>
+    <div class="comments-list" id="commentsList"></div>
+  </aside>
+
+  <main>
+    <div class="hint-top">
+      <span class="title" id="presetTitle">Full architecture</span>
+      <span id="presetHint">every component + every edge</span>
+    </div>
+    <div style="position:relative;">
+      <svg id="canvas" width="1360" height="1040" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr-data" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#5b8cff"/>
+          </marker>
+          <marker id="arr-tool" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2ecc71"/>
+          </marker>
+          <marker id="arr-ext" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#f97316"/>
+          </marker>
+          <marker id="arr-delegate" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#a78bfa"/>
+          </marker>
+          <marker id="arr-state" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#94a3b8"/>
+          </marker>
+        </defs>
+      </svg>
+      <div class="legend" id="legend"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="row">
+      <h2>Prompt for Claude <span class="copied" id="copied">copied</span></h2>
+      <button class="btn" style="padding:4px 10px;" onclick="copyPrompt()">Copy</button>
+    </div>
+    <pre id="promptOut">Loading…</pre>
+  </footer>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <div class="file mono" id="mFile"></div>
+    <div class="summary" id="mSummary"></div>
+    <textarea id="mText" placeholder="e.g. 'add retry with exponential backoff', 'should validate the caller's user_email matches the session', 'add a smoke test for this'"></textarea>
+    <div class="row">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="saveComment()">Save comment</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ----------------------- layer + edge metadata ----------------------- */
+const LAYERS = [
+  { id: 'browser',  label: 'Browser',      color: 'var(--c-browser)', x: 40,   w: 200 },
+  { id: 'api',      label: 'FastAPI',      color: 'var(--c-api)',     x: 260,  w: 220 },
+  { id: 'orch',     label: 'Orchestrator', color: 'var(--c-orch)',    x: 500,  w: 190 },
+  { id: 'agent',    label: 'Specialist agents', color: 'var(--c-agent)', x: 710, w: 220 },
+  { id: 'tool',     label: 'Tools',        color: 'var(--c-tool)',    x: 950,  w: 210 },
+  { id: 'ext',      label: 'External',     color: 'var(--c-ext)',     x: 1180, w: 170 },
+];
+
+const EDGE_TYPES = [
+  { id: 'data',     label: 'HTTP / chat',     color: '#5b8cff', dash: '' ,       marker: 'url(#arr-data)' },
+  { id: 'delegate', label: 'agent delegation',color: '#a78bfa', dash: '8 4' ,    marker: 'url(#arr-delegate)' },
+  { id: 'tool',     label: 'tool call',       color: '#2ecc71', dash: '6 3' ,    marker: 'url(#arr-tool)' },
+  { id: 'external', label: 'external API',    color: '#f97316', dash: '4 4' ,    marker: 'url(#arr-ext)' },
+  { id: 'state',    label: 'state / checkpoint', color: '#94a3b8', dash: '2 3' , marker: 'url(#arr-state)' },
+];
+
+/* ----------------------- nodes ----------------------- */
+const NW = 190, NH = 46, NGAP = 16;
+
+function stack(layer, count, topOffset = 60) {
+  // produce a layout helper — returns y for the i-th node in the layer.
+  return i => topOffset + i * (NH + NGAP);
+}
+
+const NODES = [
+  // Browser
+  { id: 'browser',        label: 'Chat UI',             file: 'index.html',                    layer: 'browser', x: 50,  y: 460, w: NW, h: NH },
+
+  // FastAPI
+  { id: 'fastapi',        label: 'FastAPI /chat',       file: 'src/sandbox/api.py',            layer: 'api',     x: 270, y: 380, w: NW, h: NH },
+  { id: 'auth',           label: 'JWT require_client',  file: 'src/sandbox/auth.py',           layer: 'api',     x: 270, y: 460, w: NW, h: NH },
+  { id: 'checkpointer',   label: 'Checkpointer',        file: 'src/sandbox/memory.py',         layer: 'api',     x: 270, y: 540, w: NW, h: NH },
+
+  // Orchestrator
+  { id: 'orchestrator',   label: 'orchestrator_agent',  file: 'agents/orchestrator.py',        layer: 'orch',    x: 510, y: 460, w: NW, h: NH },
+
+  // Specialists
+  { id: 'greeter',        label: 'greeter_agent',       file: 'agents/greeting.py',            layer: 'agent',   x: 720, y: 120, w: NW, h: NH },
+  { id: 'general_info',   label: 'general_info_agent',  file: 'agents/general_info.py',        layer: 'agent',   x: 720, y: 220, w: NW, h: NH },
+  { id: 'authenticator',  label: 'authenticator_agent', file: 'agents/authenticator.py',       layer: 'agent',   x: 720, y: 320, w: NW, h: NH },
+  { id: 'appointment',    label: 'appointment_agent',   file: 'agents/appointment.py',         layer: 'agent',   x: 720, y: 420, w: NW, h: NH },
+  { id: 'account',        label: 'account_agent',       file: 'agents/account.py',             layer: 'agent',   x: 720, y: 480, w: NW, h: NH },
+  { id: 'service',     label: 'service_agent',    file: 'agents/service.py',          layer: 'agent',   x: 720, y: 520, w: NW, h: NH },
+  { id: 'vendor_notifier',label: 'vendor_notifier',     file: 'agents/vendor_notifier.py',     layer: 'agent',   x: 720, y: 700, w: NW, h: NH },
+  { id: 'client_notifier',label: 'client_notifier',     file: 'agents/client_notifier.py',     layer: 'agent',   x: 720, y: 780, w: NW, h: NH },
+
+  // Tools
+  { id: 'ghl_contact_lookup', label: 'ghl_contact_lookup', file: 'tools/ghl_contact_lookup.py',               layer: 'tool', x: 960, y: 40, w: NW, h: NH },
+  { id: 'ghl_available_slots', label: 'ghl_available_slots', file: 'tools/ghl_available_slots.py',           layer: 'tool', x: 960, y: 90, w: NW, h: NH },
+  { id: 'ghl_book_appointment', label: 'ghl_book_appointment', file: 'tools/ghl_book_appointment.py',       layer: 'tool', x: 960, y: 140, w: NW, h: NH },
+  { id: 'ghl_get_appointments', label: 'ghl_get_appointments', file: 'tools/ghl_get_appointments.py',       layer: 'tool', x: 960, y: 190, w: NW, h: NH },
+  { id: 'ghl_cancel_appointment', label: 'ghl_cancel_appt', file: 'tools/ghl_cancel_appointment.py',        layer: 'tool', x: 960, y: 240, w: NW, h: NH },
+  { id: 'knowledge_base',     label: 'knowledge_base',     file: 'tools/knowledge_base.py',               layer: 'tool', x: 960, y: 170, w: NW, h: NH },
+  { id: 'send_otp',           label: 'send_otp',           file: 'tools/send_otp.py',                     layer: 'tool', x: 960, y: 240, w: NW, h: NH },
+  { id: 'verify_otp',         label: 'verify_otp',         file: 'tools/verify_otp.py',                   layer: 'tool', x: 960, y: 310, w: NW, h: NH },
+  { id: 'jobber_get_clients', label: 'jobber_get_clients', file: 'tools/jobber_get_clients.py',           layer: 'tool', x: 960, y: 400, w: NW, h: NH },
+  { id: 'jobber_get_properties', label: 'jobber_get_properties', file: 'tools/jobber_get_properties.py', layer: 'tool', x: 960, y: 470, w: NW, h: NH },
+  { id: 'jobber_get_jobs',    label: 'jobber_get_jobs',    file: 'tools/jobber_get_jobs.py',              layer: 'tool', x: 960, y: 540, w: NW, h: NH },
+  { id: 'jobber_get_visits',  label: 'jobber_get_visits',  file: 'tools/jobber_get_visits.py',            layer: 'tool', x: 960, y: 610, w: NW, h: NH },
+  { id: 'send_vendor_reschedule_request', label: 'send_vendor_reschedule', file: 'tools/send_vendor_reschedule_request.py', layer: 'tool', x: 960, y: 700, w: NW, h: NH },
+  { id: 'send_client_notification',       label: 'send_client_notification', file: 'tools/send_client_notification.py',     layer: 'tool', x: 960, y: 770, w: NW, h: NH },
+  { id: 'ghl_client',         label: 'ghl_client',         file: 'tools/ghl_client.py',                   layer: 'tool', x: 960, y: 870, w: NW, h: NH },
+  { id: 'jobber_client',      label: 'jobber_client',      file: 'tools/jobber_client.py',                layer: 'tool', x: 960, y: 940, w: NW, h: NH },
+
+  // External systems
+  { id: 'ghl',       label: 'GoHighLevel',      file: 'services.leadconnectorhq.com',   layer: 'ext', x: 1190, y: 180, w: 160, h: 60 },
+  { id: 'jobber',    label: 'Jobber GraphQL',   file: 'api.getjobber.com',              layer: 'ext', x: 1190, y: 480, w: 160, h: 60 },
+  { id: 'mongo',     label: 'MongoDB Atlas',    file: 'KB + checkpoints',               layer: 'ext', x: 1190, y: 340, w: 160, h: 60 },
+  { id: 'gemini',    label: 'Google Gemini',    file: 'gemini-2.5-flash + embed-001',   layer: 'ext', x: 1190, y: 640, w: 160, h: 60 },
+  { id: 'langsmith', label: 'LangSmith',        file: 'tracing (optional)',             layer: 'ext', x: 1190, y: 800, w: 160, h: 60 },
+];
+
+/* ----------------------- connections ----------------------- */
+const EDGES = [
+  // user↔browser↔api
+  { from: 'browser',     to: 'fastapi',       type: 'data',    label: 'POST /chat' },
+  { from: 'fastapi',     to: 'browser',       type: 'data',    label: 'reply' },
+  { from: 'fastapi',     to: 'auth',          type: 'data' },
+  // lifespan / checkpointer
+  { from: 'fastapi',     to: 'checkpointer',  type: 'state',   label: 'lifespan' },
+  { from: 'checkpointer',to: 'mongo',         type: 'external',label: 'MongoDBSaver' },
+  // orchestrator boot
+  { from: 'fastapi',     to: 'orchestrator',  type: 'data',    label: 'run_turn' },
+  { from: 'orchestrator',to: 'checkpointer',  type: 'state',   label: 'AgentState' },
+  // orchestrator → specialists (delegation)
+  { from: 'orchestrator',to: 'greeter',       type: 'delegate' },
+  { from: 'orchestrator',to: 'general_info',  type: 'delegate' },
+  { from: 'orchestrator',to: 'authenticator', type: 'delegate' },
+  { from: 'orchestrator',to: 'appointment',   type: 'delegate' },
+  { from: 'orchestrator',to: 'account',       type: 'delegate' },
+  { from: 'orchestrator',to: 'service',       type: 'delegate' },
+  // reschedule → notifiers (sub-delegation)
+  { from: 'service',  to: 'vendor_notifier', type: 'delegate' },
+  { from: 'service',  to: 'client_notifier', type: 'delegate' },
+  // agents → tools
+  { from: 'greeter',       to: 'ghl_contact_lookup',          type: 'tool' },
+  { from: 'general_info',  to: 'knowledge_base',              type: 'tool' },
+  { from: 'authenticator', to: 'send_otp',                    type: 'tool' },
+  { from: 'authenticator', to: 'verify_otp',                  type: 'tool' },
+  // appointment_agent → GHL calendar tools
+  { from: 'appointment',   to: 'ghl_available_slots',         type: 'tool' },
+  { from: 'appointment',   to: 'ghl_book_appointment',        type: 'tool' },
+  { from: 'appointment',   to: 'ghl_get_appointments',        type: 'tool' },
+  { from: 'appointment',   to: 'ghl_cancel_appointment',      type: 'tool' },
+  { from: 'account',       to: 'jobber_get_clients',          type: 'tool' },
+  { from: 'account',       to: 'jobber_get_properties',       type: 'tool' },
+  { from: 'account',       to: 'jobber_get_jobs',             type: 'tool' },
+  { from: 'account',       to: 'jobber_get_visits',           type: 'tool' },
+  { from: 'service',    to: 'jobber_get_clients',          type: 'tool' },
+  { from: 'service',    to: 'jobber_get_properties',       type: 'tool' },
+  { from: 'service',    to: 'jobber_get_visits',           type: 'tool' },
+  { from: 'vendor_notifier', to: 'send_vendor_reschedule_request', type: 'tool' },
+  { from: 'client_notifier', to: 'send_client_notification',       type: 'tool' },
+  // tools → shared clients
+  { from: 'ghl_contact_lookup',             to: 'ghl_client',    type: 'tool' },
+  { from: 'send_otp',                       to: 'ghl_client',    type: 'tool' },
+  { from: 'verify_otp',                     to: 'ghl_client',    type: 'tool' },
+  { from: 'ghl_available_slots',              to: 'ghl_client',    type: 'tool' },
+  { from: 'ghl_book_appointment',            to: 'ghl_client',    type: 'tool' },
+  { from: 'ghl_get_appointments',            to: 'ghl_client',    type: 'tool' },
+  { from: 'ghl_cancel_appointment',          to: 'ghl_client',    type: 'tool' },
+  { from: 'send_vendor_reschedule_request',  to: 'ghl_client',    type: 'tool' },
+  { from: 'send_client_notification',        to: 'ghl_client',    type: 'tool' },
+  { from: 'jobber_get_clients',             to: 'jobber_client', type: 'tool' },
+  { from: 'jobber_get_properties',          to: 'jobber_client', type: 'tool' },
+  { from: 'jobber_get_jobs',                to: 'jobber_client', type: 'tool' },
+  { from: 'jobber_get_visits',              to: 'jobber_client', type: 'tool' },
+  // clients → external
+  { from: 'ghl_client',    to: 'ghl',    type: 'external', label: 'REST' },
+  { from: 'jobber_client', to: 'jobber', type: 'external', label: 'GraphQL + OAuth' },
+  // LLM / embeddings
+  { from: 'orchestrator',  to: 'gemini', type: 'external', label: 'LLM' },
+  { from: 'greeter',       to: 'gemini', type: 'external' },
+  { from: 'general_info',  to: 'gemini', type: 'external' },
+  { from: 'authenticator', to: 'gemini', type: 'external' },
+  { from: 'appointment',   to: 'gemini', type: 'external' },
+  { from: 'account',       to: 'gemini', type: 'external' },
+  { from: 'service',       to: 'gemini', type: 'external' },
+  { from: 'vendor_notifier', to: 'gemini', type: 'external' },
+  { from: 'client_notifier', to: 'gemini', type: 'external' },
+  { from: 'knowledge_base',  to: 'gemini', type: 'external', label: 'embeddings' },
+  { from: 'knowledge_base',  to: 'mongo',  type: 'external', label: 'vector search' },
+  // tracing
+  { from: 'orchestrator',  to: 'langsmith', type: 'external', label: 'traces' },
+];
+
+/* ----------------------- presets ----------------------- */
+const PRESETS = [
+  {
+    id: 'full', label: 'Full architecture', hint: 'every component + edge',
+    nodes: null,
+  },
+  {
+    id: 'general', label: '1 · General question (KB)', hint: 'browser → general_info → KB',
+    nodes: ['browser','fastapi','auth','checkpointer','orchestrator','greeter','ghl_contact_lookup','ghl_client','ghl','general_info','knowledge_base','mongo','gemini'],
+  },
+  {
+    id: 'otp_new', label: '2 · New-user OTP', hint: 'create contact + send code + verify',
+    nodes: ['browser','fastapi','auth','checkpointer','orchestrator','greeter','ghl_contact_lookup','authenticator','send_otp','verify_otp','ghl_client','ghl','gemini'],
+  },
+  {
+    id: 'otp_existing', label: '3 · Existing-user OTP', hint: 'welcome back + phone match + verify',
+    nodes: ['browser','fastapi','auth','checkpointer','orchestrator','greeter','ghl_contact_lookup','authenticator','send_otp','verify_otp','ghl_client','ghl','gemini'],
+  },
+  {
+    id: 'account', label: '4 · Account query (verified)', hint: 'read-only Jobber lookup',
+    nodes: ['browser','fastapi','auth','checkpointer','orchestrator','account','jobber_get_clients','jobber_get_properties','jobber_get_jobs','jobber_get_visits','jobber_client','jobber','gemini'],
+  },
+  {
+    id: 'appointment', label: '5 · GHL Appointment (verified)', hint: 'book / view / reschedule / cancel',
+    nodes: ['browser','fastapi','auth','checkpointer','orchestrator','appointment','ghl_available_slots','ghl_book_appointment','ghl_get_appointments','ghl_cancel_appointment','ghl_client','ghl','gemini'],
+  },
+  {
+    id: 'service', label: '6 · Jobber Service + notify', hint: 'address id → vendor email → client email',
+    nodes: ['browser','fastapi','auth','checkpointer','orchestrator','service','jobber_get_clients','jobber_get_properties','jobber_get_visits','jobber_client','jobber','vendor_notifier','send_vendor_reschedule_request','client_notifier','send_client_notification','ghl_client','ghl','gemini'],
+  },
+];
+
+/* ----------------------- state ----------------------- */
+const state = {
+  preset: 'full',
+  layers:    Object.fromEntries(LAYERS.map(l => [l.id, true])),
+  edgeTypes: Object.fromEntries(EDGE_TYPES.map(t => [t.id, true])),
+  zoom: 1,
+  comments: [],
+};
+
+/* ----------------------- canvas rendering ----------------------- */
+const svg = document.getElementById('canvas');
+
+function layerColor(layer) {
+  return {
+    browser: '#22376a',
+    api:     '#5a4820',
+    orch:    '#2d5546',
+    agent:   '#263d33',
+    tool:    '#2d2d47',
+    ext:     '#5a2c40',
+  }[layer] || '#222';
+}
+
+function getNode(id) { return NODES.find(n => n.id === id); }
+
+function rightCenter(n) { return { x: n.x + n.w, y: n.y + n.h / 2 }; }
+function leftCenter(n)  { return { x: n.x,       y: n.y + n.h / 2 }; }
+
+function anchorsFor(from, to) {
+  if (to.x >= from.x + from.w) return [rightCenter(from), leftCenter(to)];   // left to right
+  if (from.x >= to.x + to.w)   return [leftCenter(from),  rightCenter(to)];  // right to left
+  // overlapping x — use vertical anchors
+  if (to.y > from.y) return [{x: from.x + from.w/2, y: from.y + from.h}, {x: to.x + to.w/2, y: to.y}];
+  return [{x: from.x + from.w/2, y: from.y}, {x: to.x + to.w/2, y: to.y + to.h}];
+}
+
+function bezierPath(a, b) {
+  const dx = (b.x - a.x) * 0.45;
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+}
+
+function highlightSet() {
+  const p = PRESETS.find(p => p.id === state.preset);
+  return p && p.nodes ? new Set(p.nodes) : null;
+}
+
+function render() {
+  svg.innerHTML = `
+    <defs>
+      <marker id="arr-data" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="${EDGE_TYPES[0].color}"/></marker>
+      <marker id="arr-delegate" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="${EDGE_TYPES[1].color}"/></marker>
+      <marker id="arr-tool" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="${EDGE_TYPES[2].color}"/></marker>
+      <marker id="arr-ext" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="${EDGE_TYPES[3].color}"/></marker>
+      <marker id="arr-state" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="${EDGE_TYPES[4].color}"/></marker>
+    </defs>`;
+
+  const highlight = highlightSet();
+
+  // Column backgrounds + labels
+  const colGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  colGroup.setAttribute('class', 'column-bg');
+  LAYERS.forEach(l => {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', l.x - 10);
+    rect.setAttribute('y', 40);
+    rect.setAttribute('width', l.w + 20);
+    rect.setAttribute('height', 990);
+    rect.setAttribute('rx', 10);
+    if (!state.layers[l.id]) rect.setAttribute('opacity', 0.1);
+    colGroup.appendChild(rect);
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('x', l.x + l.w / 2);
+    txt.setAttribute('y', 24);
+    txt.setAttribute('text-anchor', 'middle');
+    txt.textContent = l.label;
+    colGroup.appendChild(txt);
+  });
+  svg.appendChild(colGroup);
+
+  // Draw edges first so nodes paint over them
+  EDGES.forEach(e => {
+    if (!state.edgeTypes[e.type]) return;
+    const from = getNode(e.from);
+    const to   = getNode(e.to);
+    if (!from || !to) return;
+    if (!state.layers[from.layer] || !state.layers[to.layer]) return;
+
+    const [a, b] = anchorsFor(from, to);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const etype = EDGE_TYPES.find(t => t.id === e.type);
+    path.setAttribute('d', bezierPath(a, b));
+    path.setAttribute('class', 'edge');
+    path.setAttribute('stroke', etype.color);
+    if (etype.dash) path.setAttribute('stroke-dasharray', etype.dash);
+    path.setAttribute('marker-end', etype.marker);
+
+    if (highlight && !(highlight.has(e.from) && highlight.has(e.to))) {
+      path.classList.add('dimmed');
+    }
+    svg.appendChild(path);
+
+    if (e.label) {
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 4 };
+      const lt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      lt.setAttribute('x', mid.x);
+      lt.setAttribute('y', mid.y);
+      lt.setAttribute('text-anchor', 'middle');
+      lt.setAttribute('class', 'edge-label');
+      if (highlight && !(highlight.has(e.from) && highlight.has(e.to))) {
+        lt.setAttribute('opacity', 0.2);
+      }
+      lt.textContent = e.label;
+      svg.appendChild(lt);
+    }
+  });
+
+  // Nodes
+  NODES.forEach(n => {
+    if (!state.layers[n.layer]) return;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'node' + (state.comments.some(c => c.target === n.id) ? ' commented' : ''));
+    if (highlight && !highlight.has(n.id)) g.classList.add('dimmed');
+    g.addEventListener('click', () => openModal(n));
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', n.x);
+    rect.setAttribute('y', n.y);
+    rect.setAttribute('width', n.w);
+    rect.setAttribute('height', n.h);
+    rect.setAttribute('rx', 7);
+    rect.setAttribute('fill', layerColor(n.layer));
+    g.appendChild(rect);
+
+    const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lbl.setAttribute('class', 'label');
+    lbl.setAttribute('x', n.x + 10);
+    lbl.setAttribute('y', n.y + 18);
+    lbl.textContent = n.label;
+    g.appendChild(lbl);
+
+    const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    sub.setAttribute('class', 'sub');
+    sub.setAttribute('x', n.x + 10);
+    sub.setAttribute('y', n.y + 34);
+    sub.textContent = n.file;
+    g.appendChild(sub);
+
+    // pin badge if commented
+    if (state.comments.some(c => c.target === n.id)) {
+      const pin = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      pin.setAttribute('class', 'pin');
+      pin.setAttribute('cx', n.x + n.w - 8);
+      pin.setAttribute('cy', n.y + 8);
+      pin.setAttribute('r', 4);
+      g.appendChild(pin);
+    }
+
+    svg.appendChild(g);
+  });
+
+  svg.style.transform = `scale(${state.zoom})`;
+  svg.style.transformOrigin = '0 0';
+}
+
+/* ----------------------- sidebar controls ----------------------- */
+function initPresets() {
+  const host = document.getElementById('presets');
+  PRESETS.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (state.preset === p.id ? ' active' : '');
+    btn.innerHTML = `${p.label}<span class="hint">${p.hint}</span>`;
+    btn.onclick = () => {
+      state.preset = p.id;
+      document.querySelectorAll('#presets .btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('presetTitle').textContent = p.label;
+      document.getElementById('presetHint').textContent = p.hint;
+      updateAll();
+    };
+    host.appendChild(btn);
+  });
+}
+
+function initLayers() {
+  const host = document.getElementById('layers');
+  LAYERS.forEach(l => {
+    const lbl = document.createElement('label');
+    lbl.className = 'check layer';
+    lbl.innerHTML = `<input type="checkbox" checked data-layer="${l.id}"><span class="swatch" style="background:${layerColor(l.id)}"></span>${l.label}`;
+    lbl.querySelector('input').addEventListener('change', (e) => {
+      state.layers[l.id] = e.target.checked;
+      updateAll();
+    });
+    host.appendChild(lbl);
+  });
+}
+
+function initEdgeTypes() {
+  const host = document.getElementById('edgetypes');
+  EDGE_TYPES.forEach(t => {
+    const lbl = document.createElement('label');
+    lbl.className = 'check';
+    lbl.innerHTML = `<input type="checkbox" checked data-type="${t.id}"><span class="swatch" style="background:${t.color}"></span>${t.label}`;
+    lbl.querySelector('input').addEventListener('change', (e) => {
+      state.edgeTypes[t.id] = e.target.checked;
+      updateAll();
+    });
+    host.appendChild(lbl);
+  });
+}
+
+function initLegend() {
+  const legend = document.getElementById('legend');
+  EDGE_TYPES.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span class="swatch" style="background:${t.color}${t.dash ? '; border-top: 2px dashed '+t.color : ''}"></span>${t.label}`;
+    legend.appendChild(row);
+  });
+}
+
+/* ----------------------- zoom ----------------------- */
+function setZoom(delta, reset=false) {
+  if (reset) state.zoom = 1;
+  else state.zoom = Math.max(0.5, Math.min(1.8, state.zoom + delta));
+  render();
+}
+
+/* ----------------------- comments / modal ----------------------- */
+let modalNode = null;
+
+function openModal(node) {
+  modalNode = node;
+  document.getElementById('mTitle').textContent = node.label;
+  document.getElementById('mFile').textContent = node.file;
+  document.getElementById('mSummary').textContent = summaryFor(node);
+  const existing = state.comments.find(c => c.target === node.id);
+  document.getElementById('mText').value = existing ? existing.text : '';
+  document.getElementById('modalBg').classList.add('on');
+  document.getElementById('mText').focus();
+}
+
+function closeModal() {
+  modalNode = null;
+  document.getElementById('modalBg').classList.remove('on');
+}
+
+function saveComment() {
+  if (!modalNode) return;
+  const text = document.getElementById('mText').value.trim();
+  // upsert by target
+  state.comments = state.comments.filter(c => c.target !== modalNode.id);
+  if (text) {
+    state.comments.push({
+      id: Date.now(),
+      target: modalNode.id,
+      targetLabel: modalNode.label,
+      targetFile: modalNode.file,
+      text,
+    });
+  }
+  closeModal();
+  updateAll();
+}
+
+document.getElementById('modalBg').addEventListener('click', (e) => {
+  if (e.target.id === 'modalBg') closeModal();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+function summaryFor(n) {
+  const byId = {
+    browser:        'Single-file chat UI. Paste a JWT in Settings, chat, read replies. JWT-only auth toward the server.',
+    fastapi:        'POST /chat routes through require_client (JWT), run_turn over the compiled graph, and flips is_verified on VERIFIED replies.',
+    auth:           'HS256 JWT validation; accepts only DEV_CLIENT_ID. No clients.json in the sandbox.',
+    checkpointer:   'LangGraph checkpointer. MongoDBSaver when MONGODB_ATLAS_URI is set, else InMemorySaver. Stores AgentState per session_id.',
+    orchestrator:   'Email gate → session-terminated check → greet once → intent classify → relay replies. State schema = custom AgentState.',
+    greeter:        'Single tool (ghl_contact_lookup). Emits "Welcome back, <First>!" or "Thanks for contacting us!".',
+    general_info:   'Knowledge-base-backed answers. Always consults knowledge_base; never invents facts.',
+    authenticator:  'OTP-only flow. Asks for phone (and name for new users), calls send_otp, then verify_otp. 3 attempts max → CONVERSATION_TERMINATED.',
+    appointment:    'Full GHL calendar lifecycle: book NEW, VIEW existing, RESCHEDULE (cancel + rebook), CANCEL. Uses ghl_available_slots, ghl_book_appointment, ghl_get_appointments, ghl_cancel_appointment.',
+    account:        'Read-only Jobber lookup after VERIFIED. Uses jobber_get_clients, properties, jobs, visits.',
+    reschedule:     'Collects Address ID + City → finds property + visit → collects new time → confirms → hands off to vendor_notifier then client_notifier.',
+    vendor_notifier:'Internal agent. Composes a short email to the scheduling team; fires GHL workflow by writing to the reschedule custom fields.',
+    client_notifier:'Mirror of vendor_notifier. Emails the caller a confirmation copy through the client-notification GHL workflow.',
+    ghl_contact_lookup: 'Search GHL by email/phone. Used by greeter.',
+    ghl_available_slots: 'Next available calendar slots (up to 5, 14-day look-ahead). Used by appointment_agent.',
+    ghl_book_appointment: 'Create confirmed appointment. Two-step: POST creates, PUT attaches description/notes.',
+    ghl_get_appointments: 'List upcoming appointments for a contact (next 90 days, active statuses).',
+    ghl_cancel_appointment: 'Cancel by event ID; verifies ownership first. Marks as cancelled, preserves record.',
+    knowledge_base: 'Top-1 vector search. MongoDB Atlas if configured, else local JSON + pure-Python cosine.',
+    send_otp:       'Creates the GHL contact if missing, writes otp_code + otp_expires_at, triggers the OTP email workflow.',
+    verify_otp:     'Fresh fetch_contact + compare + back-date expiry on success (not clear — avoids re-firing the workflow).',
+    jobber_get_clients:'Search Jobber by email / phone / name / base64 id.',
+    jobber_get_properties:'Lists properties with the Address ID custom field exposed.',
+    jobber_get_jobs:'Lists jobs with status, total, property.',
+    jobber_get_visits:'Lists visits grouped by job; now surfaces assignedUsers (team member).',
+    send_vendor_reschedule_request:'Writes the composed email to the reschedule GHL custom fields + bumps the timestamp trigger.',
+    send_client_notification:'Same pattern, but writes to the client-notification custom fields for the caller email.',
+    ghl_client:     'Shared httpx client + helpers (search_contact, fetch_contact, create_contact, resolve_custom_field_id).',
+    jobber_client:  'Shared httpx client + OAuth2 refresh tied to ../.tokens.json. GraphQL execute with auto-retry on 401.',
+    ghl:            'GoHighLevel REST. Workflows deliver emails for OTP, reschedule, and client notifications.',
+    jobber:         'Jobber GraphQL. Read-only usage in this sandbox.',
+    mongo:          'MongoDB Atlas. Hosts vector index + checkpoint collection.',
+    gemini:         'Google Gemini. gemini-2.5-flash for chat, embedding-001 (768 dims) for the knowledge base.',
+    langsmith:      'Optional tracing. Every run_turn tagged session:<uuid>.',
+  };
+  return byId[n.id] || '';
+}
+
+/* ----------------------- comments list + prompt ----------------------- */
+function renderComments() {
+  const host = document.getElementById('commentsList');
+  document.getElementById('commentCount').textContent = state.comments.length;
+  host.innerHTML = '';
+  if (!state.comments.length) {
+    host.innerHTML = '<div class="empty">Click a component to add a question or suggestion.</div>';
+    return;
+  }
+  state.comments.forEach(c => {
+    const d = document.createElement('div');
+    d.className = 'comment';
+    d.innerHTML = `
+      <div class="head"><strong>${c.targetLabel}</strong>
+        <button title="Delete" onclick="deleteComment(${c.id})">×</button></div>
+      <div class="file">${c.targetFile}</div>
+      <div class="text"></div>`;
+    d.querySelector('.text').textContent = c.text;
+    host.appendChild(d);
+  });
+}
+
+function deleteComment(id) {
+  state.comments = state.comments.filter(c => c.id !== id);
+  updateAll();
+}
+
+function updatePrompt() {
+  const p = PRESETS.find(p => p.id === state.preset);
+  const lines = [];
+  lines.push(`# OTP Sandbox — architecture walk-through`);
+  lines.push(``);
+  lines.push(`Focus: **${p.label}** — ${p.hint}.`);
+  lines.push(``);
+  lines.push(flowNarrative(p.id));
+  if (state.comments.length) {
+    lines.push(``);
+    lines.push(`## My questions / change requests`);
+    lines.push(``);
+    state.comments.forEach(c => {
+      lines.push(`**${c.targetLabel}** (${c.targetFile}):`);
+      lines.push(c.text);
+      lines.push(``);
+    });
+  }
+  lines.push(``);
+  lines.push(`Please answer the questions above and point at the concrete code paths in sandbox/agents/, sandbox/prompts/, sandbox/tools/ that are involved.`);
+  document.getElementById('promptOut').textContent = lines.join('\n');
+}
+
+function flowNarrative(id) {
+  switch (id) {
+    case 'general':
+      return [
+        `The caller asks a general company question (e.g. "what services do you offer?").`,
+        ``,
+        `1. Browser POSTs to /chat with the JWT → FastAPI require_client validates (HS256, DEV_CLIENT_ID).`,
+        `2. run_turn invokes the compiled orchestrator graph; the checkpointer (MongoDBSaver or InMemorySaver) holds AgentState per session_id.`,
+        `3. Orchestrator's email gate fires first. Once the email is in history it calls greeter_agent once, which calls ghl_contact_lookup → GHL → returns a greeting line.`,
+        `4. Orchestrator classifies intent as general and delegates to general_info_agent.`,
+        `5. general_info_agent calls the knowledge_base tool; that routes to MongoDBAtlasVectorSearch (or local cosine) and returns the top-1 passage.`,
+        `6. Gemini composes a plain-English reply. Orchestrator relays it verbatim back through FastAPI to the browser.`,
+      ].join('\n');
+    case 'otp_new':
+      return [
+        `A brand-new caller wants to verify. No GHL contact exists yet.`,
+        ``,
+        `1. Browser → FastAPI → orchestrator (email-required gate) → greeter returns "Thanks for contacting us!" (no contact found).`,
+        `2. Caller triggers a sensitive intent. Orchestrator delegates to authenticator_agent.`,
+        `3. Authenticator asks for the caller's name + phone (required for new users), then calls send_otp.`,
+        `4. send_otp calls ghl_client.create_contact, writes otp_code + otp_expires_at on the new contact, and the GHL OTP workflow emails the code.`,
+        `5. Caller pastes the code. Authenticator calls verify_otp, which fetch_contacts fresh, compares the code, back-dates the expiry, and returns VERIFIED.`,
+        `6. FastAPI sees the VERIFIED prefix and flips is_verified=True on the session state via graph.update_state.`,
+      ].join('\n');
+    case 'otp_existing':
+      return [
+        `An existing caller verifies; their contact is already in GHL.`,
+        ``,
+        `1. Browser → FastAPI → orchestrator gate → greeter calls ghl_contact_lookup, gets a match, emits "Welcome back, <First>!".`,
+        `2. Sensitive intent → orchestrator delegates to authenticator_agent.`,
+        `3. Authenticator asks for phone only (name already on file). send_otp checks the phone matches the record, writes otp_code + otp_expires_at, and the GHL workflow emails the code.`,
+        `4. Caller pastes it. verify_otp fetches a fresh copy, compares, back-dates the expiry, returns VERIFIED.`,
+        `5. FastAPI flips is_verified on the session.`,
+      ].join('\n');
+    case 'account':
+      return [
+        `A VERIFIED caller asks about their own Jobber records.`,
+        ``,
+        `1. Orchestrator sees a prior VERIFIED in history and delegates to account_agent.`,
+        `2. account_agent calls jobber_get_clients(email) to resolve the caller's Jobber client_id (reused for the whole session).`,
+        `3. Depending on the question it calls jobber_get_properties (with the Address ID custom field), jobber_get_jobs, or jobber_get_visits (with assignedUsers).`,
+        `4. jobber_client handles OAuth2 token refresh automatically against ../.tokens.json.`,
+        `5. Gemini composes a grounded plain-English answer; orchestrator relays it.`,
+      ].join('\n');
+    case 'appointment':
+      return [
+        `A VERIFIED caller wants to manage a GHL calendar appointment.`,
+        ``,
+        `The appointment_agent owns the full lifecycle:`,
+        ``,
+        `**Book new:** call ghl_available_slots (walks forward from next business day, returns up to 5 slots) → caller picks one → confirm → ghl_book_appointment (two-step: POST creates, PUT attaches notes with a mandatory intent summary) → GHL automation sends confirmation email/SMS.`,
+        ``,
+        `**View existing:** call ghl_get_appointments (next 90 days, active only) → present list with titles, times, and [EVENT_ID].`,
+        ``,
+        `**Reschedule:** ghl_get_appointments → identify which → confirm cancel → ghl_cancel_appointment → ghl_available_slots for new times → confirm → ghl_book_appointment (notes mention "rescheduled from <old>").`,
+        ``,
+        `**Cancel:** ghl_get_appointments → identify which → confirm → ghl_cancel_appointment (marks as cancelled, preserves record, verifies ownership first).`,
+        ``,
+        `All four tools route through ghl_client → GHL REST API.`,
+      ].join('\n');
+    case 'service':
+      return [
+        `A VERIFIED caller wants to move a visit.`,
+        ``,
+        `1. Orchestrator routes to service_agent. Agent asks for BOTH the property's Address ID and the City (double-check).`,
+        `2. jobber_get_clients → jobber_get_properties → it matches the property by Address ID + City. jobber_get_visits → picks the upcoming visit and captures the assignedUsers (vendor / team member).`,
+        `3. Agent asks for the proposed new time, summarises, and requires explicit confirmation.`,
+        `4. On confirm, service_agent calls vendor_notifier_agent ONCE. vendor_notifier composes a polite email (including the assigned team member) and calls send_vendor_reschedule_request, which writes the payload + bumps GHL_RESCHEDULE_REQUESTED_AT_FIELD_KEY — the vendor GHL workflow emails the scheduling team.`,
+        `5. On RESCHEDULE_SENT, service_agent calls client_notifier_agent ONCE. It composes a confirmation copy and calls send_client_notification, which writes to the client-notification fields — a second GHL workflow emails the caller.`,
+        `6. service_agent thanks the caller in chat and promises a reply within one business day.`,
+      ].join('\n');
+    default:
+      return [
+        `The full architecture: every agent, tool, and external system.`,
+        ``,
+        `Column flow (left to right): Browser → FastAPI (api.py) → the compiled LangGraph (checkpointer + orchestrator) → one of five specialist agents (greeter, general_info, authenticator, account, reschedule) → their tools → shared ghl_client / jobber_client → external APIs.`,
+        ``,
+        `Two "internal" agents exist below service_agent (vendor_notifier, client_notifier). They never speak to the user; reschedule delegates to them to turn a confirmed reschedule into two GHL workflow fires — one to the scheduling team, one as a confirmation copy to the caller.`,
+        ``,
+        `AgentState persistence rides the whole graph, so flipping is_verified in FastAPI's /chat handler is visible to every subsequent tool call in the same session.`,
+      ].join('\n');
+  }
+}
+
+/* ----------------------- copy button ----------------------- */
+async function copyPrompt() {
+  await navigator.clipboard.writeText(document.getElementById('promptOut').textContent);
+  const c = document.getElementById('copied');
+  c.classList.add('on');
+  setTimeout(() => c.classList.remove('on'), 1200);
+}
+
+/* ----------------------- update loop ----------------------- */
+function updateAll() {
+  render();
+  renderComments();
+  updatePrompt();
+}
+
+/* ----------------------- init ----------------------- */
+initPresets();
+initLayers();
+initEdgeTypes();
+initLegend();
+updateAll();
+</script>
+</body>
+</html>

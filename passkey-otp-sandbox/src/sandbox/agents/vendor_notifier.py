@@ -1,6 +1,6 @@
 """VENDOR_NOTIFIER_AGENT — internal agent that emails the vendor via GHL.
 
-Invoked only by the reschedule_agent with a structured payload.
+Invoked only by the service_agent with a structured payload.
 Composes a short courteous email, fires
 send_vendor_reschedule_request exactly once, returns a status string.
 

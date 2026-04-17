@@ -341,12 +341,13 @@ def phase_4() -> list[Result]:
     results: list[Result] = []
     try:
         from sandbox.agents import account as acct_mod
+        from sandbox.agents import appointment as appt_mod
         from sandbox.agents import authenticator as auth_mod
         from sandbox.agents import client_notifier as client_notifier_mod
         from sandbox.agents import general_info as ginfo_mod
         from sandbox.agents import greeting as greet_mod
         from sandbox.agents import orchestrator as orch_mod
-        from sandbox.agents import reschedule as resched_mod
+        from sandbox.agents import service as service_mod
         from sandbox.agents import vendor_notifier as vendor_notifier_mod
         from sandbox.config import settings
 
@@ -356,20 +357,22 @@ def phase_4() -> list[Result]:
         acct_agent = acct_mod.build()
         vendor_notifier_agent = vendor_notifier_mod.build()
         client_notifier_agent = client_notifier_mod.build()
-        resched_agent = resched_mod.build(
+        service_agent = service_mod.build(
             vendor_notifier_agent=vendor_notifier_agent,
             client_notifier_agent=client_notifier_agent,
         )
+        appt_agent = appt_mod.build()
         orch_mod.build(
             greeter_agent=greet_agent,
             general_info_agent=ginfo_agent,
             authenticator_agent=auth_agent,
             account_agent=acct_agent,
-            reschedule_agent=resched_agent,
+            appointment_agent=appt_agent,
+            service_agent=service_agent,
         )
         results.append(
             ("agents build", True,
-             "orchestrator + greeter + general_info + authenticator + account + reschedule (+ vendor_notifier + client_notifier)")
+             "orchestrator + greeter + general_info + authenticator + account + appointment + service (+ notifiers)")
         )
 
         from sandbox.graph import build_graph, run_turn

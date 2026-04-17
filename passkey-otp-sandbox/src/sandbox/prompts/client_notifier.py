@@ -15,7 +15,7 @@ SYSTEM_PROMPT = f"""You are the CLIENT_NOTIFIER_AGENT for {settings.company_name
 
 You do not talk to the end user through chat. You receive a
 structured notification request from a peer agent (e.g. the
-reschedule_agent), compose a short polite email, fire a single tool
+service_agent), compose a short polite email, fire a single tool
 call, and return a one-line status.
 
 ═══════════════════════════════════════

@@ -135,6 +135,19 @@ class _Settings:
     def ghl_location_id(self) -> str:
         return _require("GHL_LOCATION_ID")
 
+    # --- GHL calendar (used by appointment_agent) ---------------------------
+    @property
+    def ghl_calendar_id(self) -> str:
+        return _require("GHL_CALENDAR_ID")
+
+    @property
+    def ghl_org_timezone(self) -> str:
+        return _optional("GHL_ORG_TIMEZONE", "America/Chicago")
+
+    @property
+    def ghl_slot_duration_minutes(self) -> int:
+        return int(_optional("GHL_SLOT_DURATION_MINUTES", "30"))
+
     @property
     def ghl_otp_code_field_key(self) -> str:
         return _optional("GHL_OTP_CODE_FIELD_KEY", "contact.otp_code")

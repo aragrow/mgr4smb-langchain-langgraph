@@ -28,7 +28,8 @@ def build(
     general_info_agent,
     authenticator_agent,
     account_agent,
-    reschedule_agent,
+    appointment_agent,
+    service_agent,
 ):
     """Return a compiled react agent for the sandbox orchestrator."""
     tools = [
@@ -73,16 +74,26 @@ def build(
             ),
         ),
         agent_as_tool(
-            reschedule_agent,
-            name="reschedule_agent",
+            appointment_agent,
+            name="appointment_agent",
             description=(
-                "Help the caller move the time of an existing Jobber job "
-                "at one of their properties. Collects Address ID + City, "
-                "confirms the change, then dispatches a request email to "
-                "the scheduling team AND a confirmation email to the "
-                "caller via the GHL workflow pipeline. Pass the caller's "
-                "email + their request verbatim in the instruction. The "
-                "caller MUST already be VERIFIED this session."
+                "Full GHL calendar lifecycle: book a NEW appointment, "
+                "VIEW existing ones, RESCHEDULE (cancel + rebook), or "
+                "CANCEL. Pass the caller's email + their request "
+                "verbatim in the instruction. The caller MUST already "
+                "be VERIFIED this session."
+            ),
+        ),
+        agent_as_tool(
+            service_agent,
+            name="service_agent",
+            description=(
+                "Handle the caller's Jobber service records — properties, "
+                "jobs, visits. When they want a change (move a visit, add "
+                "instructions), collects Address ID + City, confirms, and "
+                "emails the scheduling team + the caller via GHL workflow. "
+                "Pass the caller's email + request verbatim. The caller "
+                "MUST already be VERIFIED this session."
             ),
         ),
     ]

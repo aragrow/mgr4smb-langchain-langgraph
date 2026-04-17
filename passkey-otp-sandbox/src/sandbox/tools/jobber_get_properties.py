@@ -1,7 +1,7 @@
 """Jobber Get Properties — lists service addresses for a client.
 
 Also surfaces the caller-facing "Address ID" custom field (configured
-via JOBBER_ADDRESS_ID_FIELD_KEY) so the reschedule_agent can match a
+via JOBBER_ADDRESS_ID_FIELD_KEY) so the service_agent can match a
 caller's stated ID to their property record.
 """
 

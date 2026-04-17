@@ -2,7 +2,7 @@
 
 Mirror of vendor_notifier_agent, but the recipient is the caller
 (client) rather than the scheduling team. Invoked by peer agents
-(e.g. reschedule_agent) when they need to send the caller a
+(e.g. service_agent) when they need to send the caller a
 confirmation or status email OUT-OF-BAND (separate from the chat
 reply).
 
