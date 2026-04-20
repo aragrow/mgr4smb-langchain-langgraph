@@ -1,8 +1,9 @@
 """GHL Available Slots — list the next available calendar slots.
 
-Ported from mgr4smb/tools/ghl_available_slots.py. Walks forward from
-the next business day, skipping weekends, and returns the first date
-that has open slots (capped at 14 days). Used by appointment_agent.
+Ported from mgr4smb/tools/ghl_available_slots.py and enhanced:
+  - Returns the first 2 open days (not just the first one).
+  - Accepts an optional `preferred_start_date` so the caller can
+    target a specific date (e.g. "next Wednesday").
 """
 
 import logging
@@ -46,16 +47,25 @@ def _get_free_slots_for_day(client, day: datetime) -> list[str]:
     return data.get(date_key, {}).get("slots", [])
 
 
-def _find_next_available(client, start: datetime, max_days: int = 14) -> tuple[datetime, list[str]]:
+def _find_next_n_available(
+    client, start: datetime, n: int = 2, max_days: int = 14,
+) -> list[tuple[datetime, list[str]]]:
+    """Walk forward from `start`, skip weekends, collect up to `n` days
+    that have at least one open slot. Caps at `max_days` total days
+    scanned to avoid runaway API calls on a mostly-full calendar.
+    """
+    results: list[tuple[datetime, list[str]]] = []
     candidate = start
-    for _ in range(max_days):
+    scanned = 0
+    while len(results) < n and scanned < max_days:
         slots = _get_free_slots_for_day(client, candidate)
         if slots:
-            return candidate, slots
+            results.append((candidate, slots))
         candidate += timedelta(days=1)
         while candidate.weekday() >= 5:
             candidate += timedelta(days=1)
-    return start, []
+        scanned += 1
+    return results
 
 
 def _format_time(slot_iso: str, user_tz_name: str) -> str:
@@ -67,27 +77,60 @@ def _format_time(slot_iso: str, user_tz_name: str) -> str:
         return slot_iso
 
 
+def _parse_date(s: str) -> datetime | None:
+    """Best-effort parse of an ISO-ish date string into a midnight UTC datetime."""
+    s = s.strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    except ValueError:
+        return None
+
+
 @tool
-def ghl_available_slots(contact_identifier: str, user_timezone: str = "") -> str:
+def ghl_available_slots(
+    contact_identifier: str,
+    user_timezone: str = "",
+    preferred_start_date: str = "",
+) -> str:
     """Retrieve the next available appointment time slots from GoHighLevel.
 
+    Returns slots for up to 2 open days so the caller has choices.
+    Each day shows up to 5 slots.
+
     Args:
-        contact_identifier: Email or phone of the caller (used only to
-            personalise the output by name if the contact exists).
+        contact_identifier: Email or phone of the caller.
         user_timezone: User's timezone for display (e.g. America/New_York).
-            Defaults to the org timezone configured via GHL_ORG_TIMEZONE.
+            Defaults to the org timezone.
+        preferred_start_date: Optional ISO date (e.g. "2026-04-22") to
+            start searching from. If blank, defaults to the next
+            business day. Use this when the caller asks for a specific
+            date — the tool will return up to 2 open days starting
+            from that date (or after, if that date is full).
     """
     identifier = (contact_identifier or "").strip()
     if not identifier:
         return "Error: A phone number or email address is required."
 
     user_tz = (user_timezone or "").strip() or settings.ghl_org_timezone
-    start_date = _next_business_day()
+
+    start_date = _parse_date(preferred_start_date) or _next_business_day()
+    # Don't search in the past.
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if start_date < now:
+        start_date = _next_business_day()
 
     try:
         client = ghl_client.get_client()
         contact = ghl_client.search_contact(identifier)
-        target_date, slots = _find_next_available(client, start_date)
+        open_days = _find_next_n_available(client, start_date, n=2)
     except GHLAPIError as e:
         logger.error(
             "ghl_available_slots failed",
@@ -102,24 +145,32 @@ def ghl_available_slots(contact_identifier: str, user_timezone: str = "") -> str
     else:
         contact_name = identifier
 
-    if not slots:
+    if not open_days:
         return (
-            f"No available slots found in the next 14 business days for "
+            f"No available slots found in the next 14 business days "
+            f"(starting {start_date.strftime('%Y-%m-%d')}) for "
             f"{contact_name}. The calendar may be fully booked."
         )
 
-    date_label = target_date.strftime("%A, %B %d, %Y")
-    top_slots = slots[:5]
-    slot_lines = "\n".join(
-        f"  {i + 1}. {_format_time(s, user_tz)} ({user_tz}) — slot: {s}"
-        for i, s in enumerate(top_slots)
-    )
+    lines = [f"Available appointment times for {contact_name}:"]
+    slot_num = 0
+    for day, slots in open_days:
+        date_label = day.strftime("%A, %B %d, %Y")
+        lines.append(f"\n  {date_label}:")
+        for s in slots[:5]:
+            slot_num += 1
+            lines.append(
+                f"    {slot_num}. {_format_time(s, user_tz)} ({user_tz}) — slot: {s}"
+            )
+
+    total = sum(min(len(s), 5) for _, s in open_days)
     logger.info(
         "Slots found",
-        extra={"tool": "ghl_available_slots", "count": len(top_slots), "date": date_label},
+        extra={
+            "tool": "ghl_available_slots",
+            "open_days": len(open_days),
+            "total_slots": total,
+        },
     )
-    return (
-        f"Available appointment times for {contact_name} on {date_label}:\n"
-        f"{slot_lines}\n"
-        "Which slot works best?"
-    )
+    lines.append("\nWhich slot works best?")
+    return "\n".join(lines)

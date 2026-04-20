@@ -205,19 +205,171 @@ smoke_phase() {
 }
 
 # ---------------------------------------------------------------------------
-# JWT (single dev client — no clients.json in the sandbox)
+# Client + JWT management (clients.json registry)
 # ---------------------------------------------------------------------------
-mint_jwt() {
+_run_inline_py() {
+    _require_venv; _require_env; _activate_venv
+    python - "$@"
+}
+
+create_client() {
+    read -r -p "Client name (e.g. Aragrow LLC): " name
+    [[ -z "$name" ]] && { _err "Name required"; return 1; }
+
     read -r -p "Token expiration in days [365]: " days
     days=${days:-365}
-    _require_venv; _require_env; _activate_venv
-    local token; token=$(python scripts/issue_dev_jwt.py --days "$days" 2>/dev/null)
-    echo
-    _info "Save this JWT — paste it into Settings → JWT token in the chat UI:"
-    echo
-    echo "  $token"
-    echo
-    _ok "JWT minted ($(echo "$token" | wc -c | tr -d ' ') chars, expires in $days days)"
+
+    _run_inline_py <<PYEOF
+import fcntl
+import json
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from sandbox.auth import issue_token
+from sandbox.config import settings
+
+name = """$name""".strip()
+days = int("""$days""".strip())
+client_id = str(uuid.uuid4())
+
+path = settings.clients_file
+path.touch(exist_ok=True)
+
+with open(path, "r+" if path.stat().st_size else "w+") as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    try:
+        f.seek(0)
+        raw = f.read()
+        data = json.loads(raw) if raw.strip() else {"clients": []}
+        data.setdefault("clients", []).append({
+            "client_id": client_id,
+            "name": name,
+            "enabled": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        f.seek(0)
+        f.truncate()
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    finally:
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+path.chmod(0o600)
+token = issue_token(client_id, expires_in_days=days)
+print()
+print(f"  Client ID: {client_id}")
+print(f"  Name:      {name}")
+print(f"  Expires:   {days} days")
+print()
+print("  JWT token (save it now — cannot be retrieved later):")
+print(f"  {token}")
+print()
+PYEOF
+    _ok "Client created"
+}
+
+list_clients() {
+    _run_inline_py <<'PYEOF'
+import json
+from sandbox.config import settings
+
+path = settings.clients_file
+if not path.exists():
+    print("  No clients.json yet.")
+    raise SystemExit(0)
+
+data = json.loads(path.read_text() or '{"clients": []}')
+clients = data.get("clients", [])
+if not clients:
+    print("  No clients registered.")
+    raise SystemExit(0)
+
+print()
+print(f"  {'CLIENT_ID':<40} {'NAME':<25} ENABLED  CREATED")
+print(f"  {'-'*40} {'-'*25} {'-'*7}  {'-'*25}")
+for c in clients:
+    cid = c.get("client_id", "")
+    name = c.get("name", "")[:24]
+    enabled = "yes" if c.get("enabled") else "no"
+    created = c.get("created_at", "")[:19]
+    print(f"  {cid:<40} {name:<25} {enabled:<7}  {created}")
+print()
+PYEOF
+}
+
+reissue_jwt() {
+    list_clients
+    read -r -p "Client ID to reissue: " cid
+    [[ -z "$cid" ]] && { _err "Client ID required"; return 1; }
+
+    read -r -p "Token expiration in days [365]: " days
+    days=${days:-365}
+
+    _run_inline_py <<PYEOF
+import json
+from sandbox.auth import issue_token
+from sandbox.config import settings
+
+cid = """$cid""".strip()
+days = int("""$days""".strip())
+
+data = json.loads(settings.clients_file.read_text() or '{"clients": []}')
+client = next((c for c in data.get("clients", []) if c.get("client_id") == cid), None)
+if not client:
+    raise SystemExit(f"Client {cid} not found.")
+if not client.get("enabled"):
+    raise SystemExit(f"Client {cid} is disabled. Re-enable first.")
+
+token = issue_token(cid, expires_in_days=days)
+print()
+print(f"  Client: {client.get('name')} ({cid})")
+print(f"  New JWT (save it now — cannot be retrieved later):")
+print(f"  {token}")
+print()
+print("  Note: the previous token remains valid until its own expiry.")
+print("  To invalidate it immediately, revoke this client.")
+print()
+PYEOF
+    _ok "JWT reissued"
+}
+
+revoke_client() {
+    list_clients
+    read -r -p "Client ID to disable: " cid
+    [[ -z "$cid" ]] && { _err "Client ID required"; return 1; }
+
+    _run_inline_py <<PYEOF
+import fcntl
+import json
+from sandbox.config import settings
+
+cid = """$cid""".strip()
+path = settings.clients_file
+
+with open(path, "r+") as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    try:
+        f.seek(0)
+        data = json.loads(f.read() or '{"clients": []}')
+        found = False
+        for c in data.get("clients", []):
+            if c.get("client_id") == cid:
+                c["enabled"] = False
+                found = True
+                break
+        if not found:
+            raise SystemExit(f"Client {cid} not found.")
+        f.seek(0)
+        f.truncate()
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    finally:
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+print(f"  Client {cid} disabled. Existing tokens will be rejected on next request.")
+PYEOF
+    _ok "Client revoked"
 }
 
 # ---------------------------------------------------------------------------
@@ -244,11 +396,14 @@ show_menu() {
 │    8) Run single phase
 └──────────────────────────────────────────────────────────────
 
-┌─ JWT  (single dev client — no clients.json) ─────────────────
-│    9) Mint dev JWT
+┌─ CLIENTS & JWTS  (clients.json registry) ────────────────────
+│    9) Create new client + JWT
+│   10) List clients
+│   11) Reissue JWT for existing client
+│   12) Revoke client (disable)
 └──────────────────────────────────────────────────────────────
 
-   10) Exit
+   13) Exit
 ══════════════════════════════════════════════════════════════
 EOF
 }
@@ -274,8 +429,11 @@ main() {
             6)  tail_logs           || true ;;  # tail -f already waits for Ctrl-C
             7)  smoke_all           || true; _pause ;;
             8)  smoke_phase         || true; _pause ;;
-            9)  mint_jwt            || true; _pause ;;
-            10) _info "Bye."; exit 0 ;;
+            9)  create_client       || true; _pause ;;
+            10) list_clients        || true; _pause ;;
+            11) reissue_jwt         || true; _pause ;;
+            12) revoke_client       || true; _pause ;;
+            13) _info "Bye."; exit 0 ;;
             *)  _warn "Invalid choice: $choice"; _pause ;;
         esac
     done

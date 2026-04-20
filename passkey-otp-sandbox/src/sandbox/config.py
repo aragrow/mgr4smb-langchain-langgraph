@@ -56,6 +56,10 @@ class _Settings:
         return _optional("JWT_ALGORITHM", "HS256")
 
     @property
+    def clients_file(self) -> Path:
+        return _project_root / _optional("CLIENTS_FILE", "clients.json")
+
+    @property
     def dev_client_id(self) -> str:
         return _optional("DEV_CLIENT_ID", "dev-local")
 

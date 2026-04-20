@@ -1,9 +1,18 @@
 """GHL Book Appointment — creates a confirmed appointment in GoHighLevel.
 
-Ported from mgr4smb/tools/ghl_book_appointment.py. Two-step write:
-the POST body does NOT accept `description`/`notes` (GHL silently
-drops them); a follow-up PUT with `description` is the one that
-persists. Verified empirically against the live API.
+Two-step write to avoid double-triggering GHL confirmation workflows:
+
+  Step 1: POST with appointmentStatus="new" — creates the record
+          without firing the confirmation workflow.
+  Step 2: PUT  with description + appointmentStatus="confirmed" —
+          attaches the intent-summary notes AND flips status in one
+          call, so the workflow fires exactly once and the calendar
+          event already has the notes when the team opens it.
+
+GHL's POST endpoint does NOT accept a `description` field (it either
+400s or silently ignores it), which is why the two-step exists. The
+previous approach (POST as confirmed → PUT description) fired the
+workflow twice — once on creation, once on the notes update.
 """
 
 import logging
@@ -91,6 +100,18 @@ def ghl_book_appointment(
         last = contact.get("lastName", "")
         contact_name = f"{first} {last}".strip() or identifier
 
+        # TWO-STEP CREATE to avoid double-triggering GHL workflows:
+        #
+        # Step 1: POST with appointmentStatus="new". GHL creates the
+        #   record but the confirmation workflow (which fires on
+        #   status=confirmed) does NOT trigger yet. GHL's POST endpoint
+        #   does NOT accept a description field — it either 400s or
+        #   silently ignores it — so notes can't ride along here.
+        #
+        # Step 2: PUT with description + flip status to "confirmed".
+        #   This is the ONLY mutation that fires the workflow, so exactly
+        #   one confirmation email/SMS goes out — and it includes the
+        #   intent summary in the calendar event.
         appointment_body = {
             "calendarId": settings.ghl_calendar_id,
             "locationId": settings.ghl_location_id,
@@ -98,34 +119,36 @@ def ghl_book_appointment(
             "startTime": start_dt.isoformat(),
             "endTime": end_dt.isoformat(),
             "title": service,
-            "appointmentStatus": "confirmed",
+            "appointmentStatus": "new",
         }
 
         resp = client.post("/calendars/events/appointments", json=appointment_body)
         resp.raise_for_status()
         result = resp.json()
 
-        # GHL's POST endpoint does NOT accept any notes/description field
-        # — it rejects "description" with 400 and silently ignores
-        # "notes"/"appointmentNotes". The follow-up PUT with
-        # `description` IS accepted and persists; the GET response
-        # mirrors it as both `description` and `notes`.
-        event_id_for_notes = result.get("id")
-        if notes_clean and event_id_for_notes:
+        event_id = result.get("id")
+        if event_id:
+            # Step 2: attach notes + flip to confirmed in one PUT.
+            update_body: dict = {"appointmentStatus": "confirmed"}
+            if notes_clean:
+                update_body["description"] = notes_clean
             try:
-                note_resp = client.put(
-                    f"/calendars/events/appointments/{event_id_for_notes}",
-                    json={"description": notes_clean},
+                put_resp = client.put(
+                    f"/calendars/events/appointments/{event_id}",
+                    json=update_body,
                 )
-                note_resp.raise_for_status()
+                put_resp.raise_for_status()
                 logger.debug(
-                    "Appointment description set",
-                    extra={"event_id": event_id_for_notes, "chars": len(notes_clean)},
+                    "Appointment confirmed + description set",
+                    extra={"event_id": event_id, "chars": len(notes_clean)},
                 )
             except Exception:
-                logger.warning(
-                    "Failed to attach description to appointment",
-                    extra={"event_id": event_id_for_notes},
+                # POST succeeded so the appointment exists; failing to
+                # confirm + attach notes is bad but not worth failing the
+                # whole booking. Log loudly.
+                logger.error(
+                    "Failed to confirm/attach description to appointment",
+                    extra={"event_id": event_id},
                     exc_info=True,
                 )
 
